@@ -1,0 +1,49 @@
+erDiagram 
+ 
+   AGENCE ||--o{ COLLABORATEUR : "emploie" 
+   AGENCE ||--o{ CLIENT : "gère" 
+   AGENCE ||--o{ DOSSIER : "structure" 
+ 
+   COLLABORATEUR }o--o{ PROFIL : "profils" 
+   COLLABORATEUR }o--o{ SPECIALITE : "spécialités" 
+   COLLABORATEUR }o--o{ EQUIPE : "équipes" 
+ 
+   COLLABORATEUR ||--o{ CLIENT : "responsable" 
+   COLLABORATEUR ||--o{ HISTORIQUE_DOSSIER : "auteur" 
+   COLLABORATEUR ||--o{ HISTORIQUE_PROCEDURE : "auteur" 
+   COLLABORATEUR ||--o{ HISTORIQUE_INSTANCE : "auteur" 
+   COLLABORATEUR ||--o{ DOCUMENT : "auteur" 
+ 
+   COLLABORATEUR ||--o{ AFFECTATION_DOSSIER : "affecté" 
+   COLLABORATEUR ||--o{ AFFECTATION_PROCEDURE : "affecté" 
+   ROLE_AFFECTATION ||--o{ AFFECTATION_DOSSIER : "rôle" 
+   ROLE_AFFECTATION ||--o{ AFFECTATION_PROCEDURE : "rôle" 
+ 
+   DOMAINE_JURIDIQUE ||--o{ SOUS_DOMAINE : "contient" 
+   SOUS_DOMAINE ||--o{ SPECIALITE : "contient" 
+   SOUS_DOMAINE }o--o{ MODELE_DOCUMENT : "applicable à" 
+ 
+   CLIENT ||--o{ DOSSIER : "dossiers" 
+   TYPE_DOSSIER ||--o{ DOSSIER : "type" 
+   STATUT_DOSSIER ||--o{ DOSSIER : "statut" 
+ 
+   DOSSIER ||--o{ HISTORIQUE_DOSSIER : "historique" 
+   DOSSIER ||--o{ PROCEDURE : "procédures" 
+   DOSSIER ||--o{ FACTURE : "factures" 
+   DOSSIER ||--o{ DOCUMENT : "documents" 
+ 
+   TYPE_PROCEDURE ||--o{ PROCEDURE : "type" 
+   STATUT_PROCEDURE ||--o{ PROCEDURE : "statut" 
+   PROCEDURE ||--o{ HISTORIQUE_PROCEDURE : "historique" 
+   PROCEDURE ||--o{ INSTANCE_JURIDIQUE : "instances" 
+   PROCEDURE ||--o{ DOCUMENT : "documents" 
+ 
+   TYPE_INSTANCE ||--o{ INSTANCE_JURIDIQUE : "type" 
+   STATUT_INSTANCE ||--o{ INSTANCE_JURIDIQUE : "statut" 
+   INSTANCE_JURIDIQUE ||--o{ HISTORIQUE_INSTANCE : "historique" 
+   INSTANCE_JURIDIQUE ||--o{ AUDIENCE : "audiences" 
+   INSTANCE_JURIDIQUE ||--o{ DOCUMENT : "documents" 
+ 
+   TYPE_DOCUMENT ||--o{ DOCUMENT : "type" 
+   TYPE_DOCUMENT ||--o{ MODELE_DOCUMENT : "type" 
+   MODELE_DOCUMENT ||--o{ PARAGRAPHE_PREDEFINI : "paragraphes"
