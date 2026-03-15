@@ -1,0 +1,626 @@
+import express from 'express';
+import dotenv from 'dotenv';
+import { query, testConnection } from './db.js';
+
+dotenv.config();
+
+const app = express();
+const apiPort = Number(process.env.API_PORT || 8787);
+
+app.use(express.json({ limit: '1mb' }));
+
+function toNullableText(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const normalized = String(value).trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function toSearchPattern(value) {
+  const normalized = toNullableText(value);
+  return normalized ? `%${normalized}%` : null;
+}
+
+function splitFullName(value) {
+  const normalized = toNullableText(value);
+  if (!normalized) {
+    return { firstName: 'Nouveau', lastName: 'Client' };
+  }
+
+  const [firstName, ...rest] = normalized.split(/\s+/);
+  return {
+    firstName,
+    lastName: rest.length > 0 ? rest.join(' ') : 'Client',
+  };
+}
+
+async function findOrCreateAgenceId(agenceLabel) {
+  const normalized = toNullableText(agenceLabel);
+  if (!normalized) {
+    return null;
+  }
+
+  const existing = await query(
+    `
+      SELECT id
+      FROM agence
+      WHERE lower(nom) = lower($1) OR lower(ville) = lower($1)
+      ORDER BY id
+      LIMIT 1
+    `,
+    [normalized],
+  );
+
+  if (existing.rows[0]) {
+    return existing.rows[0].id;
+  }
+
+  const inserted = await query(
+    `
+      INSERT INTO agence (nom, ville)
+      VALUES ($1, $1)
+      RETURNING id
+    `,
+    [normalized],
+  );
+
+  return inserted.rows[0].id;
+}
+
+async function findOrCreateLabelId(kind, label) {
+  const normalized = toNullableText(label);
+  if (!normalized) {
+    return null;
+  }
+
+  const lookup = {
+    type_dossier: { tableName: 'type_dossier', columnName: 'libelle' },
+    statut_dossier: { tableName: 'statut_dossier', columnName: 'libelle' },
+    type_document: { tableName: 'type_document', columnName: 'libelle' },
+  }[kind];
+
+  if (!lookup) {
+    throw new Error(`Unsupported label lookup: ${kind}`);
+  }
+
+  const existing = await query(
+    `
+      SELECT id
+      FROM ${lookup.tableName}
+      WHERE lower(${lookup.columnName}) = lower($1)
+      ORDER BY id
+      LIMIT 1
+    `,
+    [normalized],
+  );
+
+  if (existing.rows[0]) {
+    return existing.rows[0].id;
+  }
+
+  const inserted = await query(
+    `
+      INSERT INTO ${lookup.tableName} (${lookup.columnName})
+      VALUES ($1)
+      RETURNING id
+    `,
+    [normalized],
+  );
+
+  return inserted.rows[0].id;
+}
+
+async function findCollaborateurId(fullName) {
+  const normalized = toNullableText(fullName);
+  if (!normalized) {
+    return null;
+  }
+
+  const result = await query(
+    `
+      SELECT id
+      FROM collaborateur
+      WHERE lower(trim(concat_ws(' ', prenom, nom))) = lower($1)
+      ORDER BY id
+      LIMIT 1
+    `,
+    [normalized],
+  );
+
+  return result.rows[0]?.id ?? null;
+}
+
+async function findOrCreateClientId(fullName, agenceId) {
+  const normalized = toNullableText(fullName);
+  if (!normalized) {
+    return null;
+  }
+
+  const existing = await query(
+    `
+      SELECT id
+      FROM client
+      WHERE lower(trim(concat_ws(' ', prenom, nom))) = lower($1)
+      ORDER BY id
+      LIMIT 1
+    `,
+    [normalized],
+  );
+
+  if (existing.rows[0]) {
+    return existing.rows[0].id;
+  }
+
+  const { firstName, lastName } = splitFullName(normalized);
+  const inserted = await query(
+    `
+      INSERT INTO client (id_agence, nom, prenom)
+      VALUES ($1, $2, $3)
+      RETURNING id
+    `,
+    [agenceId, lastName, firstName],
+  );
+
+  return inserted.rows[0].id;
+}
+
+async function getClientById(clientId) {
+  const result = await query(
+    `
+      SELECT
+        c.id,
+        c.nom,
+        c.prenom,
+        COALESCE(c.email, '') AS email,
+        COALESCE(c.telephone, '') AS telephone,
+        COALESCE(a.nom, a.ville, 'Non renseignee') AS agence,
+        COALESCE(trim(concat_ws(' ', cr.prenom, cr.nom)), 'Non assigne') AS responsable
+      FROM client c
+      LEFT JOIN agence a ON a.id = c.id_agence
+      LEFT JOIN collaborateur cr ON cr.id = c.id_collaborateur_responsable
+      WHERE c.id = $1
+    `,
+    [clientId],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+async function getDossierById(dossierId) {
+  const result = await query(
+    `
+      SELECT
+        d.id,
+        COALESCE(d.reference, '') AS reference,
+        COALESCE(trim(concat_ws(' ', c.prenom, c.nom)), 'Non renseigne') AS client,
+        COALESCE(td.libelle, 'Non renseigne') AS type,
+        COALESCE(sd.libelle, 'Non renseigne') AS statut,
+        COALESCE(a.nom, a.ville, 'Non renseignee') AS agence,
+        COALESCE(to_char(d.date_ouverture, 'YYYY-MM-DD'), '') AS ouverture,
+        COALESCE(to_char(d.date_cloture, 'YYYY-MM-DD'), '') AS echeance,
+        COALESCE(latest_facture.montant, 0)::float8 AS montant
+      FROM dossier d
+      LEFT JOIN client c ON c.id = d.id_client
+      LEFT JOIN type_dossier td ON td.id = d.id_type_dossier
+      LEFT JOIN statut_dossier sd ON sd.id = d.id_statut_dossier
+      LEFT JOIN agence a ON a.id = d.id_agence
+      LEFT JOIN LATERAL (
+        SELECT montant
+        FROM facture f
+        WHERE f.id_dossier = d.id
+        ORDER BY f.date_emission DESC NULLS LAST, f.id DESC
+        LIMIT 1
+      ) AS latest_facture ON true
+      WHERE d.id = $1
+    `,
+    [dossierId],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+async function getDocumentById(documentId) {
+  const result = await query(
+    `
+      SELECT
+        d.id,
+        COALESCE(td.libelle, 'Document') AS type,
+        COALESCE(ds.reference, '') AS "dossierReference",
+        COALESCE(trim(concat_ws(' ', c.prenom, c.nom)), 'Non assigne') AS auteur,
+        COALESCE(to_char(d.date_creation, 'YYYY-MM-DD'), '') AS "dateCreation",
+        CASE
+          WHEN d.date_creation IS NULL THEN 'Brouillon'
+          WHEN d.date_creation < NOW() - INTERVAL '30 days' THEN 'Valide'
+          ELSE 'A relire'
+        END AS statut
+      FROM document d
+      LEFT JOIN type_document td ON td.id = d.id_type_document
+      LEFT JOIN dossier ds ON ds.id = d.id_dossier
+      LEFT JOIN collaborateur c ON c.id = d.auteur
+      WHERE d.id = $1
+    `,
+    [documentId],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+app.get('/api/health', async (request, response) => {
+  try {
+    await testConnection();
+    response.json({ ok: true, database: 'connected' });
+  } catch (error) {
+    response.status(503).json({ ok: false, database: 'disconnected', message: error.message });
+  }
+});
+
+app.get('/api/dashboard', async (request, response, next) => {
+  try {
+    const [activeDossiers, delayedProcedures, upcomingHearings, pendingDocuments] = await Promise.all([
+      query(
+        `
+          SELECT COUNT(*)::int AS total
+          FROM dossier d
+          LEFT JOIN statut_dossier sd ON sd.id = d.id_statut_dossier
+          WHERE COALESCE(lower(sd.libelle), '') <> 'cloture'
+        `,
+      ),
+      query(
+        `
+          SELECT COUNT(*)::int AS total
+          FROM "procedure" p
+          WHERE p.date_fin IS NULL
+            AND p.date_debut IS NOT NULL
+            AND p.date_debut < CURRENT_DATE - INTERVAL '14 days'
+        `,
+      ),
+      query(
+        `
+          SELECT COUNT(*)::int AS total
+          FROM audience a
+          WHERE a.date_audience BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'
+        `,
+      ),
+      query(
+        `
+          SELECT COUNT(*)::int AS total
+          FROM document d
+          WHERE d.date_creation IS NULL
+             OR d.date_creation >= NOW() - INTERVAL '30 days'
+        `,
+      ),
+    ]);
+
+    response.json([
+      {
+        label: 'Dossiers actifs',
+        value: String(activeDossiers.rows[0]?.total ?? 0),
+        trend: 'Synchro PostgreSQL locale',
+        trendUp: true,
+      },
+      {
+        label: 'Procedures en retard',
+        value: String(delayedProcedures.rows[0]?.total ?? 0),
+        trend: 'Revue quotidienne',
+        trendUp: false,
+      },
+      {
+        label: 'Audiences sous 7 jours',
+        value: String(upcomingHearings.rows[0]?.total ?? 0),
+        trend: 'Fenetre glissante',
+        trendUp: true,
+      },
+      {
+        label: 'Documents a valider',
+        value: String(pendingDocuments.rows[0]?.total ?? 0),
+        trend: 'Derniers 30 jours',
+        trendUp: true,
+      },
+    ]);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/clients', async (request, response, next) => {
+  try {
+    const searchPattern = toSearchPattern(request.query.q);
+    const agenceFilter = toNullableText(request.query.agence);
+
+    const result = await query(
+      `
+        SELECT
+          c.id,
+          c.nom,
+          c.prenom,
+          COALESCE(c.email, '') AS email,
+          COALESCE(c.telephone, '') AS telephone,
+          COALESCE(a.nom, a.ville, 'Non renseignee') AS agence,
+          COALESCE(trim(concat_ws(' ', cr.prenom, cr.nom)), 'Non assigne') AS responsable
+        FROM client c
+        LEFT JOIN agence a ON a.id = c.id_agence
+        LEFT JOIN collaborateur cr ON cr.id = c.id_collaborateur_responsable
+        WHERE ($1::text IS NULL
+          OR c.nom ILIKE $1
+          OR c.prenom ILIKE $1
+          OR c.email ILIKE $1
+          OR c.telephone ILIKE $1)
+          AND ($2::text IS NULL
+            OR a.nom = $2
+            OR a.ville = $2)
+        ORDER BY c.id DESC
+      `,
+      [searchPattern, agenceFilter],
+    );
+
+    response.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/clients', async (request, response, next) => {
+  try {
+    const nom = toNullableText(request.body.nom);
+    const prenom = toNullableText(request.body.prenom);
+
+    if (!nom || !prenom) {
+      response.status(400).json({ message: 'nom et prenom sont obligatoires.' });
+      return;
+    }
+
+    const email = toNullableText(request.body.email);
+    const telephone = toNullableText(request.body.telephone);
+    const agenceId = await findOrCreateAgenceId(request.body.agence);
+    const responsableId = await findCollaborateurId(request.body.responsable);
+
+    const inserted = await query(
+      `
+        INSERT INTO client (id_agence, id_collaborateur_responsable, nom, prenom, email, telephone)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id
+      `,
+      [agenceId, responsableId, nom, prenom, email, telephone],
+    );
+
+    const row = await getClientById(inserted.rows[0].id);
+    response.status(201).json(row);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/dossiers', async (request, response, next) => {
+  try {
+    const searchPattern = toSearchPattern(request.query.q);
+    const statutFilter = toNullableText(request.query.statut);
+    const agenceFilter = toNullableText(request.query.agence);
+
+    const result = await query(
+      `
+        SELECT
+          d.id,
+          COALESCE(d.reference, '') AS reference,
+          COALESCE(trim(concat_ws(' ', c.prenom, c.nom)), 'Non renseigne') AS client,
+          COALESCE(td.libelle, 'Non renseigne') AS type,
+          COALESCE(sd.libelle, 'Non renseigne') AS statut,
+          COALESCE(a.nom, a.ville, 'Non renseignee') AS agence,
+          COALESCE(to_char(d.date_ouverture, 'YYYY-MM-DD'), '') AS ouverture,
+          COALESCE(to_char(d.date_cloture, 'YYYY-MM-DD'), '') AS echeance,
+          COALESCE(latest_facture.montant, 0)::float8 AS montant
+        FROM dossier d
+        LEFT JOIN client c ON c.id = d.id_client
+        LEFT JOIN type_dossier td ON td.id = d.id_type_dossier
+        LEFT JOIN statut_dossier sd ON sd.id = d.id_statut_dossier
+        LEFT JOIN agence a ON a.id = d.id_agence
+        LEFT JOIN LATERAL (
+          SELECT montant
+          FROM facture f
+          WHERE f.id_dossier = d.id
+          ORDER BY f.date_emission DESC NULLS LAST, f.id DESC
+          LIMIT 1
+        ) AS latest_facture ON true
+        WHERE ($1::text IS NULL
+          OR d.reference ILIKE $1
+          OR c.nom ILIKE $1
+          OR c.prenom ILIKE $1
+          OR td.libelle ILIKE $1)
+          AND ($2::text IS NULL OR sd.libelle = $2)
+          AND ($3::text IS NULL OR a.nom = $3 OR a.ville = $3)
+        ORDER BY d.id DESC
+      `,
+      [searchPattern, statutFilter, agenceFilter],
+    );
+
+    response.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/dossiers', async (request, response, next) => {
+  try {
+    const reference = toNullableText(request.body.reference);
+    const clientName = toNullableText(request.body.client);
+
+    if (!reference || !clientName) {
+      response.status(400).json({ message: 'reference et client sont obligatoires.' });
+      return;
+    }
+
+    const agenceId = await findOrCreateAgenceId(request.body.agence);
+    const clientId = await findOrCreateClientId(clientName, agenceId);
+    const typeId = await findOrCreateLabelId('type_dossier', request.body.type ?? 'Contentieux');
+    const statutId = await findOrCreateLabelId('statut_dossier', request.body.statut ?? 'A valider');
+
+    const dateOuverture = toNullableText(request.body.ouverture);
+    const dateEcheance = toNullableText(request.body.echeance);
+    const montant = Number(request.body.montant ?? 0);
+
+    const inserted = await query(
+      `
+        INSERT INTO dossier (
+          id_agence,
+          id_client,
+          id_type_dossier,
+          id_statut_dossier,
+          reference,
+          date_ouverture,
+          date_cloture
+        )
+        VALUES ($1, $2, $3, $4, $5, $6::date, $7::date)
+        RETURNING id
+      `,
+      [agenceId, clientId, typeId, statutId, reference, dateOuverture, dateEcheance],
+    );
+
+    if (Number.isFinite(montant) && montant > 0) {
+      await query(
+        `
+          INSERT INTO facture (id_dossier, montant, date_emission, statut)
+          VALUES ($1, $2, CURRENT_DATE, 'Brouillon')
+        `,
+        [inserted.rows[0].id, montant],
+      );
+    }
+
+    const row = await getDossierById(inserted.rows[0].id);
+    response.status(201).json(row);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/procedures', async (request, response, next) => {
+  try {
+    const result = await query(
+      `
+        SELECT
+          p.id,
+          COALESCE(d.reference, '') AS "dossierReference",
+          COALESCE(tp.libelle, 'Non renseigne') AS type,
+          COALESCE(sp.libelle, 'Non renseigne') AS statut,
+          COALESCE(latest_instance.juridiction, 'Instance') AS juridiction,
+          COALESCE(to_char(p.date_debut, 'YYYY-MM-DD'), '') AS debut,
+          COALESCE(to_char(p.date_fin, 'YYYY-MM-DD'), '') AS fin
+        FROM "procedure" p
+        LEFT JOIN dossier d ON d.id = p.id_dossier
+        LEFT JOIN type_procedure tp ON tp.id = p.id_type_procedure
+        LEFT JOIN statut_procedure sp ON sp.id = p.id_statut_procedure
+        LEFT JOIN LATERAL (
+          SELECT COALESCE(ti.libelle, 'Instance') AS juridiction
+          FROM instance_juridique ij
+          LEFT JOIN type_instance ti ON ti.id = ij.id_type_instance
+          WHERE ij.id_procedure = p.id
+          ORDER BY ij.id DESC
+          LIMIT 1
+        ) AS latest_instance ON true
+        ORDER BY p.id DESC
+      `,
+    );
+
+    response.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/documents', async (request, response, next) => {
+  try {
+    const result = await query(
+      `
+        SELECT
+          d.id,
+          COALESCE(td.libelle, 'Document') AS type,
+          COALESCE(ds.reference, '') AS "dossierReference",
+          COALESCE(trim(concat_ws(' ', c.prenom, c.nom)), 'Non assigne') AS auteur,
+          COALESCE(to_char(d.date_creation, 'YYYY-MM-DD'), '') AS "dateCreation",
+          CASE
+            WHEN d.date_creation IS NULL THEN 'Brouillon'
+            WHEN d.date_creation < NOW() - INTERVAL '30 days' THEN 'Valide'
+            ELSE 'A relire'
+          END AS statut
+        FROM document d
+        LEFT JOIN type_document td ON td.id = d.id_type_document
+        LEFT JOIN dossier ds ON ds.id = d.id_dossier
+        LEFT JOIN collaborateur c ON c.id = d.auteur
+        ORDER BY d.id DESC
+      `,
+    );
+
+    response.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/documents', async (request, response, next) => {
+  try {
+    const typeId = await findOrCreateLabelId('type_document', request.body.type ?? 'Document');
+    const dossierReference = toNullableText(request.body.dossierReference);
+    const auteurId = await findCollaborateurId(request.body.auteur);
+
+    let dossierId = null;
+    if (dossierReference) {
+      const dossier = await query(
+        `
+          SELECT id
+          FROM dossier
+          WHERE reference = $1
+          ORDER BY id DESC
+          LIMIT 1
+        `,
+        [dossierReference],
+      );
+      dossierId = dossier.rows[0]?.id ?? null;
+    }
+
+    const inserted = await query(
+      `
+        INSERT INTO document (id_type_document, id_dossier, auteur, chemin_fichier, date_creation)
+        VALUES ($1, $2, $3, $4, NOW())
+        RETURNING id
+      `,
+      [typeId, dossierId, auteurId, '/documents/local'],
+    );
+
+    const row = await getDocumentById(inserted.rows[0].id);
+    response.status(201).json(row);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/schema/tables', async (request, response, next) => {
+  try {
+    const result = await query(
+      `
+        SELECT table_name AS name
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_type = 'BASE TABLE'
+        ORDER BY table_name
+      `,
+    );
+
+    response.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.use((error, request, response, next) => {
+  console.error('[api] Error:', error.message);
+  response.status(500).json({ message: error.message });
+});
+
+app.listen(apiPort, async () => {
+  try {
+    await testConnection();
+    console.log(`[api] Running on http://127.0.0.1:${apiPort} (PostgreSQL connected)`);
+  } catch (error) {
+    console.warn(`[api] Running on http://127.0.0.1:${apiPort} (PostgreSQL unavailable: ${error.message})`);
+  }
+});

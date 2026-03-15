@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import SchemaOverview from './components/SchemaOverview.vue'
+import { RouterView } from 'vue-router';
 </script>
 
 <template>
-  <SchemaOverview />
+  <RouterView />
 </template>
