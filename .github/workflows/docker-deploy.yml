@@ -24,3 +24,5 @@ jobs:
           context: .
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/cabinetavocats:latest
+env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
