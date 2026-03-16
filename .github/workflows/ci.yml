@@ -73,13 +73,48 @@ jobs:
           echo "host_url=$host_url" >> "$GITHUB_OUTPUT"
           echo "project_key=$project_key" >> "$GITHUB_OUTPUT"
           echo "organization=$organization" >> "$GITHUB_OUTPUT"
+      - name: Ensure Sonar project exists
+        if: env.SONAR_TOKEN != ''
+        id: sonar-project
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ steps.sonar-meta.outputs.host_url }}
+          SONAR_PROJECT_KEY: ${{ steps.sonar-meta.outputs.project_key }}
+          SONAR_PROJECT_NAME: ${{ steps.sonar-meta.outputs.repo_name }}
+          SONAR_ORGANIZATION: ${{ steps.sonar-meta.outputs.organization }}
+        run: |
+          project_exists() {
+            local key="$1"
+            local url="$SONAR_HOST_URL/api/projects/search?organization=$SONAR_ORGANIZATION&projects=$key"
+            curl --silent --show-error --fail -u "$SONAR_TOKEN:" "$url" | grep -q '"total":[[:space:]]*1'
+          }
+
+          resolved_project_key="$SONAR_PROJECT_KEY"
+          lowercase_project_key="$(echo "$SONAR_PROJECT_KEY" | tr '[:upper:]' '[:lower:]')"
+
+          if project_exists "$SONAR_PROJECT_KEY"; then
+            echo "Project found with key $SONAR_PROJECT_KEY"
+          elif [ "$lowercase_project_key" != "$SONAR_PROJECT_KEY" ] && project_exists "$lowercase_project_key"; then
+            resolved_project_key="$lowercase_project_key"
+            echo "Project found with lowercase key $resolved_project_key"
+          else
+            echo "Project not found. Creating key $resolved_project_key"
+            curl --silent --show-error --fail -u "$SONAR_TOKEN:" \
+              -X POST "$SONAR_HOST_URL/api/projects/create" \
+              -d "organization=$SONAR_ORGANIZATION" \
+              -d "project=$resolved_project_key" \
+              --data-urlencode "name=$SONAR_PROJECT_NAME" > /dev/null
+            echo "Project created."
+          fi
+
+          echo "project_key=$resolved_project_key" >> "$GITHUB_OUTPUT"
       - name: Run Sonar analysis
         if: env.SONAR_TOKEN != ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ steps.sonar-meta.outputs.host_url }}
-          SONAR_PROJECT_KEY: ${{ steps.sonar-meta.outputs.project_key }}
+          SONAR_PROJECT_KEY: ${{ steps.sonar-project.outputs.project_key }}
           SONAR_PROJECT_NAME: ${{ steps.sonar-meta.outputs.repo_name }}
           SONAR_ORGANIZATION: ${{ steps.sonar-meta.outputs.organization }}
         run: |
