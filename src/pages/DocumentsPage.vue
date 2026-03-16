@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import DataTable from '../components/ui/DataTable.vue';
 import DrawerPanel from '../components/ui/DrawerPanel.vue';
 import { documents } from '../data/mockData';
@@ -8,6 +8,7 @@ import {
   createDocument as createDocumentApi,
   getDocuments,
 } from '../services/api';
+import { useSession } from '../services/session';
 import type { DocumentItem } from '../types/domain';
 
 const rows = ref<DocumentItem[]>([...documents]);
@@ -16,6 +17,7 @@ const statusFilter = ref('all');
 const drawerOpen = ref(false);
 const dataSource = ref('Mock local');
 const { canPerformAction } = useAccessControl();
+const { state: sessionState } = useSession();
 const canCreateDocument = computed(() => canPerformAction('documents:create'));
 
 const form = reactive({
@@ -48,18 +50,20 @@ const filteredRows = computed(() =>
 async function loadDocumentsFromApi(): Promise<void> {
   try {
     const remoteRows = await getDocuments();
-    if (remoteRows.length > 0) {
-      rows.value = remoteRows;
-    }
+    rows.value = remoteRows;
     dataSource.value = 'PostgreSQL local';
   } catch {
     dataSource.value = 'Mock local';
   }
 }
 
-onMounted(() => {
-  void loadDocumentsFromApi();
-});
+watch(
+  () => [sessionState.agencyId, sessionState.metier, sessionState.userId],
+  () => {
+    void loadDocumentsFromApi();
+  },
+  { immediate: true },
+);
 
 function createDocumentLocally(): void {
   if (!form.type || !form.auteur) {

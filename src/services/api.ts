@@ -7,6 +7,23 @@ import type {
 } from '../types/domain';
 import { getSessionHeaders } from './session';
 
+function getSessionAgency(): string | undefined {
+  const agency = getSessionHeaders()['X-Session-Agency'];
+  return agency || undefined;
+}
+
+function withSessionAgencyFilter<T extends Record<string, string | null | undefined>>(filters: T): T {
+  const sessionAgency = getSessionAgency();
+  if (!sessionAgency || filters.agence) {
+    return filters;
+  }
+
+  return {
+    ...filters,
+    agence: sessionAgency,
+  } as T;
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
 
@@ -49,11 +66,12 @@ export async function getApiHealth() {
 }
 
 export async function getDashboardMetrics() {
-  return requestJson<DashboardMetric[]>('/api/dashboard');
+  const query = toQueryString(withSessionAgencyFilter({ agence: undefined }));
+  return requestJson<DashboardMetric[]>(`/api/dashboard${query}`);
 }
 
 export async function getClients(filters: { q?: string; agence?: string } = {}) {
-  const query = toQueryString(filters);
+  const query = toQueryString(withSessionAgencyFilter(filters));
   return requestJson<Client[]>(`/api/clients${query}`);
 }
 
@@ -72,7 +90,7 @@ export async function createClient(payload: {
 }
 
 export async function getDossiers(filters: { q?: string; statut?: string; agence?: string } = {}) {
-  const query = toQueryString(filters);
+  const query = toQueryString(withSessionAgencyFilter(filters));
   return requestJson<Dossier[]>(`/api/dossiers${query}`);
 }
 
@@ -93,11 +111,13 @@ export async function createDossier(payload: {
 }
 
 export async function getProcedures() {
-  return requestJson<ProcedureItem[]>('/api/procedures');
+  const query = toQueryString(withSessionAgencyFilter({ agence: undefined }));
+  return requestJson<ProcedureItem[]>(`/api/procedures${query}`);
 }
 
 export async function getDocuments() {
-  return requestJson<DocumentItem[]>('/api/documents');
+  const query = toQueryString(withSessionAgencyFilter({ agence: undefined }));
+  return requestJson<DocumentItem[]>(`/api/documents${query}`);
 }
 
 export async function createDocument(payload: {

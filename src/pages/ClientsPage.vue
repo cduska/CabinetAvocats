@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import DrawerPanel from '../components/ui/DrawerPanel.vue';
 import DataTable from '../components/ui/DataTable.vue';
 import { clients } from '../data/mockData';
 import { useAccessControl } from '../services/access';
 import { createClient as createClientApi, getClients } from '../services/api';
+import { useSession } from '../services/session';
 import type { Client } from '../types/domain';
 
 const columns = [
@@ -21,6 +22,7 @@ const agenceFilter = ref('all');
 const drawerOpen = ref(false);
 const dataSource = ref('Mock local');
 const { canPerformAction } = useAccessControl();
+const { state: sessionState } = useSession();
 const canCreateClient = computed(() => canPerformAction('clients:create'));
 
 const form = reactive({
@@ -47,18 +49,20 @@ const filteredRows = computed(() => {
 async function loadClientsFromApi(): Promise<void> {
   try {
     const remoteRows = await getClients();
-    if (remoteRows.length > 0) {
-      rows.value = remoteRows;
-    }
+    rows.value = remoteRows;
     dataSource.value = 'PostgreSQL local';
   } catch {
     dataSource.value = 'Mock local';
   }
 }
 
-onMounted(() => {
-  void loadClientsFromApi();
-});
+watch(
+  () => [sessionState.agencyId, sessionState.metier, sessionState.userId],
+  () => {
+    void loadClientsFromApi();
+  },
+  { immediate: true },
+);
 
 function resetForm(): void {
   form.nom = '';

@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import DataTable from '../components/ui/DataTable.vue';
 import { procedures } from '../data/mockData';
 import { useAccessControl } from '../services/access';
 import { getProcedures } from '../services/api';
+import { useSession } from '../services/session';
 import type { ProcedureItem } from '../types/domain';
 
 const rows = ref<ProcedureItem[]>([...procedures]);
 const statusFilter = ref('all');
 const dataSource = ref('Mock local');
 const { canPerformAction } = useAccessControl();
+const { state: sessionState } = useSession();
 const canPlanProcedure = computed(() => canPerformAction('procedures:plan'));
 
 const columns = [
@@ -30,18 +32,20 @@ const filteredRows = computed(() =>
 async function loadProceduresFromApi(): Promise<void> {
   try {
     const remoteRows = await getProcedures();
-    if (remoteRows.length > 0) {
-      rows.value = remoteRows;
-    }
+    rows.value = remoteRows;
     dataSource.value = 'PostgreSQL local';
   } catch {
     dataSource.value = 'Mock local';
   }
 }
 
-onMounted(() => {
-  void loadProceduresFromApi();
-});
+watch(
+  () => [sessionState.agencyId, sessionState.metier, sessionState.userId],
+  () => {
+    void loadProceduresFromApi();
+  },
+  { immediate: true },
+);
 </script>
 
 <template>

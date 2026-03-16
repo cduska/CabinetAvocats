@@ -24,6 +24,18 @@ function toSearchPattern(value) {
   return normalized ? `%${normalized}%` : null;
 }
 
+function getSessionContext(request) {
+  return {
+    agence: toNullableText(request.get('X-Session-Agency')),
+    metier: toNullableText(request.get('X-Session-Metier')),
+    user: toNullableText(request.get('X-Session-User')),
+  };
+}
+
+function resolveAgenceFilter(requestedAgence, sessionContext) {
+  return toNullableText(requestedAgence) ?? sessionContext.agence;
+}
+
 function splitFullName(value) {
   const normalized = toNullableText(value);
   if (!normalized) {
@@ -259,38 +271,65 @@ app.get('/api/health', async (request, response) => {
 
 app.get('/api/dashboard', async (request, response, next) => {
   try {
+    const sessionContext = getSessionContext(request);
+    const agenceFilter = resolveAgenceFilter(request.query.agence, sessionContext);
+
     const [activeDossiers, delayedProcedures, upcomingHearings, pendingDocuments] = await Promise.all([
       query(
         `
           SELECT COUNT(*)::int AS total
           FROM dossier d
           LEFT JOIN statut_dossier sd ON sd.id = d.id_statut_dossier
+          LEFT JOIN agence a ON a.id = d.id_agence
           WHERE COALESCE(lower(sd.libelle), '') <> 'cloture'
+            AND ($1::text IS NULL OR a.nom = $1 OR a.ville = $1)
         `,
+        [agenceFilter],
       ),
       query(
         `
           SELECT COUNT(*)::int AS total
           FROM "procedure" p
+          LEFT JOIN dossier d ON d.id = p.id_dossier
+          LEFT JOIN agence a ON a.id = d.id_agence
           WHERE p.date_fin IS NULL
             AND p.date_debut IS NOT NULL
             AND p.date_debut < CURRENT_DATE - INTERVAL '14 days'
+            AND ($1::text IS NULL OR a.nom = $1 OR a.ville = $1)
         `,
+        [agenceFilter],
       ),
       query(
         `
           SELECT COUNT(*)::int AS total
-          FROM audience a
-          WHERE a.date_audience BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'
+          FROM audience aud
+          LEFT JOIN instance_juridique ij ON ij.id = aud.id_instance
+          LEFT JOIN "procedure" p ON p.id = ij.id_procedure
+          LEFT JOIN dossier d ON d.id = p.id_dossier
+          LEFT JOIN agence a ON a.id = d.id_agence
+          WHERE aud.date_audience BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'
+            AND ($1::text IS NULL OR a.nom = $1 OR a.ville = $1)
         `,
+        [agenceFilter],
       ),
       query(
         `
           SELECT COUNT(*)::int AS total
-          FROM document d
-          WHERE d.date_creation IS NULL
-             OR d.date_creation >= NOW() - INTERVAL '30 days'
+          FROM document doc
+          LEFT JOIN dossier direct_dossier ON direct_dossier.id = doc.id_dossier
+          LEFT JOIN "procedure" doc_procedure ON doc_procedure.id = doc.id_procedure
+          LEFT JOIN dossier procedure_dossier ON procedure_dossier.id = doc_procedure.id_dossier
+          LEFT JOIN instance_juridique doc_instance ON doc_instance.id = doc.id_instance
+          LEFT JOIN "procedure" instance_procedure ON instance_procedure.id = doc_instance.id_procedure
+          LEFT JOIN dossier instance_dossier ON instance_dossier.id = instance_procedure.id_dossier
+          LEFT JOIN agence a ON a.id = COALESCE(direct_dossier.id_agence, procedure_dossier.id_agence, instance_dossier.id_agence)
+          WHERE (
+            doc.date_creation IS NULL
+            OR doc.date_creation >= NOW() - INTERVAL '30 days'
+          )
+            AND ($1::text IS NULL OR a.nom = $1 OR a.ville = $1)
         `,
+        [agenceFilter],
       ),
     ]);
 
@@ -327,8 +366,9 @@ app.get('/api/dashboard', async (request, response, next) => {
 
 app.get('/api/clients', async (request, response, next) => {
   try {
+    const sessionContext = getSessionContext(request);
     const searchPattern = toSearchPattern(request.query.q);
-    const agenceFilter = toNullableText(request.query.agence);
+    const agenceFilter = resolveAgenceFilter(request.query.agence, sessionContext);
 
     const result = await query(
       `
@@ -364,6 +404,7 @@ app.get('/api/clients', async (request, response, next) => {
 
 app.post('/api/clients', async (request, response, next) => {
   try {
+    const sessionContext = getSessionContext(request);
     const nom = toNullableText(request.body.nom);
     const prenom = toNullableText(request.body.prenom);
 
@@ -374,8 +415,10 @@ app.post('/api/clients', async (request, response, next) => {
 
     const email = toNullableText(request.body.email);
     const telephone = toNullableText(request.body.telephone);
-    const agenceId = await findOrCreateAgenceId(request.body.agence);
-    const responsableId = await findCollaborateurId(request.body.responsable);
+    const agenceLabel = toNullableText(request.body.agence) ?? sessionContext.agence;
+    const responsableName = toNullableText(request.body.responsable) ?? sessionContext.user;
+    const agenceId = await findOrCreateAgenceId(agenceLabel);
+    const responsableId = await findCollaborateurId(responsableName);
 
     const inserted = await query(
       `
@@ -395,9 +438,10 @@ app.post('/api/clients', async (request, response, next) => {
 
 app.get('/api/dossiers', async (request, response, next) => {
   try {
+    const sessionContext = getSessionContext(request);
     const searchPattern = toSearchPattern(request.query.q);
     const statutFilter = toNullableText(request.query.statut);
-    const agenceFilter = toNullableText(request.query.agence);
+    const agenceFilter = resolveAgenceFilter(request.query.agence, sessionContext);
 
     const result = await query(
       `
@@ -443,6 +487,7 @@ app.get('/api/dossiers', async (request, response, next) => {
 
 app.post('/api/dossiers', async (request, response, next) => {
   try {
+    const sessionContext = getSessionContext(request);
     const reference = toNullableText(request.body.reference);
     const clientName = toNullableText(request.body.client);
 
@@ -451,7 +496,8 @@ app.post('/api/dossiers', async (request, response, next) => {
       return;
     }
 
-    const agenceId = await findOrCreateAgenceId(request.body.agence);
+    const agenceLabel = toNullableText(request.body.agence) ?? sessionContext.agence;
+    const agenceId = await findOrCreateAgenceId(agenceLabel);
     const clientId = await findOrCreateClientId(clientName, agenceId);
     const typeId = await findOrCreateLabelId('type_dossier', request.body.type ?? 'Contentieux');
     const statutId = await findOrCreateLabelId('statut_dossier', request.body.statut ?? 'A valider');
@@ -496,6 +542,9 @@ app.post('/api/dossiers', async (request, response, next) => {
 
 app.get('/api/procedures', async (request, response, next) => {
   try {
+    const sessionContext = getSessionContext(request);
+    const agenceFilter = resolveAgenceFilter(request.query.agence, sessionContext);
+
     const result = await query(
       `
         SELECT
@@ -508,6 +557,7 @@ app.get('/api/procedures', async (request, response, next) => {
           COALESCE(to_char(p.date_fin, 'YYYY-MM-DD'), '') AS fin
         FROM "procedure" p
         LEFT JOIN dossier d ON d.id = p.id_dossier
+        LEFT JOIN agence a ON a.id = d.id_agence
         LEFT JOIN type_procedure tp ON tp.id = p.id_type_procedure
         LEFT JOIN statut_procedure sp ON sp.id = p.id_statut_procedure
         LEFT JOIN LATERAL (
@@ -518,8 +568,10 @@ app.get('/api/procedures', async (request, response, next) => {
           ORDER BY ij.id DESC
           LIMIT 1
         ) AS latest_instance ON true
+        WHERE ($1::text IS NULL OR a.nom = $1 OR a.ville = $1)
         ORDER BY p.id DESC
       `,
+      [agenceFilter],
     );
 
     response.json(result.rows);
@@ -530,25 +582,36 @@ app.get('/api/procedures', async (request, response, next) => {
 
 app.get('/api/documents', async (request, response, next) => {
   try {
+    const sessionContext = getSessionContext(request);
+    const agenceFilter = resolveAgenceFilter(request.query.agence, sessionContext);
+
     const result = await query(
       `
         SELECT
-          d.id,
+          doc.id,
           COALESCE(td.libelle, 'Document') AS type,
-          COALESCE(ds.reference, '') AS "dossierReference",
+          COALESCE(direct_dossier.reference, procedure_dossier.reference, instance_dossier.reference, '') AS "dossierReference",
           COALESCE(trim(concat_ws(' ', c.prenom, c.nom)), 'Non assigne') AS auteur,
-          COALESCE(to_char(d.date_creation, 'YYYY-MM-DD'), '') AS "dateCreation",
+          COALESCE(to_char(doc.date_creation, 'YYYY-MM-DD'), '') AS "dateCreation",
           CASE
-            WHEN d.date_creation IS NULL THEN 'Brouillon'
-            WHEN d.date_creation < NOW() - INTERVAL '30 days' THEN 'Valide'
+            WHEN doc.date_creation IS NULL THEN 'Brouillon'
+            WHEN doc.date_creation < NOW() - INTERVAL '30 days' THEN 'Valide'
             ELSE 'A relire'
           END AS statut
-        FROM document d
-        LEFT JOIN type_document td ON td.id = d.id_type_document
-        LEFT JOIN dossier ds ON ds.id = d.id_dossier
-        LEFT JOIN collaborateur c ON c.id = d.auteur
-        ORDER BY d.id DESC
+        FROM document doc
+        LEFT JOIN type_document td ON td.id = doc.id_type_document
+        LEFT JOIN dossier direct_dossier ON direct_dossier.id = doc.id_dossier
+        LEFT JOIN "procedure" doc_procedure ON doc_procedure.id = doc.id_procedure
+        LEFT JOIN dossier procedure_dossier ON procedure_dossier.id = doc_procedure.id_dossier
+        LEFT JOIN instance_juridique doc_instance ON doc_instance.id = doc.id_instance
+        LEFT JOIN "procedure" instance_procedure ON instance_procedure.id = doc_instance.id_procedure
+        LEFT JOIN dossier instance_dossier ON instance_dossier.id = instance_procedure.id_dossier
+        LEFT JOIN agence a ON a.id = COALESCE(direct_dossier.id_agence, procedure_dossier.id_agence, instance_dossier.id_agence)
+        LEFT JOIN collaborateur c ON c.id = doc.auteur
+        WHERE ($1::text IS NULL OR a.nom = $1 OR a.ville = $1)
+        ORDER BY doc.id DESC
       `,
+      [agenceFilter],
     );
 
     response.json(result.rows);
@@ -559,9 +622,11 @@ app.get('/api/documents', async (request, response, next) => {
 
 app.post('/api/documents', async (request, response, next) => {
   try {
+    const sessionContext = getSessionContext(request);
     const typeId = await findOrCreateLabelId('type_document', request.body.type ?? 'Document');
     const dossierReference = toNullableText(request.body.dossierReference);
-    const auteurId = await findCollaborateurId(request.body.auteur);
+    const auteurName = toNullableText(request.body.auteur) ?? sessionContext.user;
+    const auteurId = await findCollaborateurId(auteurName);
 
     let dossierId = null;
     if (dossierReference) {

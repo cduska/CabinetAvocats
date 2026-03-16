@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import MetricCard from '../components/ui/MetricCard.vue';
 import { dashboardMetrics, documents, dossiers } from '../data/mockData';
 import { useAccessControl } from '../services/access';
+import { useSession } from '../services/session';
 import {
   getDashboardMetrics,
   getDocuments,
@@ -14,6 +15,7 @@ const metrics = ref([...dashboardMetrics]);
 const dossierRows = ref([...dossiers]);
 const documentRows = ref([...documents]);
 const { canPerformAction } = useAccessControl();
+const { state: sessionState } = useSession();
 const canCreateDossier = computed(() => canPerformAction('dashboard:create-dossier'));
 const canExportActivity = computed(() => canPerformAction('dashboard:export-activity'));
 
@@ -25,18 +27,22 @@ async function hydrateDashboard() {
       getDocuments(),
     ]);
 
-    metrics.value = remoteMetrics.length > 0 ? remoteMetrics : metrics.value;
-    dossierRows.value = remoteDossiers.length > 0 ? remoteDossiers : dossierRows.value;
-    documentRows.value = remoteDocuments.length > 0 ? remoteDocuments : documentRows.value;
+    metrics.value = remoteMetrics;
+    dossierRows.value = remoteDossiers;
+    documentRows.value = remoteDocuments;
     dataSource.value = 'PostgreSQL local';
   } catch {
     dataSource.value = 'Mock local';
   }
 }
 
-onMounted(() => {
-  void hydrateDashboard();
-});
+watch(
+  () => [sessionState.agencyId, sessionState.metier, sessionState.userId],
+  () => {
+    void hydrateDashboard();
+  },
+  { immediate: true },
+);
 
 const upcomingDeadlines = computed(() =>
   [...dossierRows.value]

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import DataTable from '../components/ui/DataTable.vue';
 import DrawerPanel from '../components/ui/DrawerPanel.vue';
 import { dossiers } from '../data/mockData';
 import { useAccessControl } from '../services/access';
 import { createDossier as createDossierApi, getDossiers } from '../services/api';
+import { useSession } from '../services/session';
 import type { Dossier } from '../types/domain';
 
 const rows = ref<Dossier[]>([...dossiers]);
@@ -14,6 +15,7 @@ const statusFilter = ref('all');
 const agencyFilter = ref('all');
 const dataSource = ref('Mock local');
 const { canPerformAction } = useAccessControl();
+const { state: sessionState } = useSession();
 const canCreateDossier = computed(() => canPerformAction('dossiers:create'));
 
 const columns = [
@@ -53,18 +55,20 @@ const canContinueStepOne = computed(() => Boolean(form.reference && form.client 
 async function loadDossiersFromApi(): Promise<void> {
   try {
     const remoteRows = await getDossiers();
-    if (remoteRows.length > 0) {
-      rows.value = remoteRows;
-    }
+    rows.value = remoteRows;
     dataSource.value = 'PostgreSQL local';
   } catch {
     dataSource.value = 'Mock local';
   }
 }
 
-onMounted(() => {
-  void loadDossiersFromApi();
-});
+watch(
+  () => [sessionState.agencyId, sessionState.metier, sessionState.userId],
+  () => {
+    void loadDossiersFromApi();
+  },
+  { immediate: true },
+);
 
 function resetForm(): void {
   form.reference = '';
