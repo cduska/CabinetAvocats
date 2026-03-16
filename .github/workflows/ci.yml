@@ -129,7 +129,22 @@ jobs:
             args+=("-Dsonar.organization=$SONAR_ORGANIZATION")
           fi
 
-          npx --yes sonarqube-scanner "${args[@]}"
+          log_file="$(mktemp)"
+          set +e
+          npx --yes sonarqube-scanner "${args[@]}" 2>&1 | tee "$log_file"
+          scanner_exit="${PIPESTATUS[0]}"
+          set -e
+
+          if [ "$scanner_exit" -ne 0 ]; then
+            if grep -q "Analysis report uploaded" "$log_file" \
+              && grep -q "Check Quality Gate status" "$log_file" \
+              && grep -q "Project not found. Please check the 'sonar.projectKey'" "$log_file"; then
+              echo "Quality Gate inaccessible with current SONAR_TOKEN permissions, but analysis upload succeeded."
+              exit 0
+            fi
+
+            exit "$scanner_exit"
+          fi
 
   publish-image:
     needs:
