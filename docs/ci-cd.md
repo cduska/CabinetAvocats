@@ -89,7 +89,9 @@ push / pull_request → main
 
 ### `notify`
 - Construit un résumé HTML de tous les jobs
-- Intègre les badges SonarCloud (Quality Gate, coverage, bugs, code smells)
+- Affiche les statuts Sonar + Cypress en texte (robuste même si images externes bloquées)
+- Ajoute un lien direct vers le dashboard SonarCloud et vers Cypress Cloud
+- Intègre le badge Cypress Cloud
 - Envoie l'email via SMTP (secrets à configurer — voir section Secrets)
 - S'exécute toujours, même si un job précédent a échoué
 
@@ -123,6 +125,8 @@ Ces badges sont accessibles publiquement et peuvent être intégrés dans le REA
 [![Bugs](https://sonarcloud.io/api/project_badges/measure?project=cduska_CabinetAvocats&metric=bugs)](https://sonarcloud.io/dashboard?id=cduska_CabinetAvocats)
 [![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=cduska_CabinetAvocats&metric=code_smells)](https://sonarcloud.io/dashboard?id=cduska_CabinetAvocats)
 ```
+
+> Note: si le projet SonarCloud est privé, les images de badges peuvent afficher `project not found` dans certains clients email non authentifiés. Dans ce cas, utilisez le lien dashboard SonarCloud présent dans l'email.
 
 ---
 
