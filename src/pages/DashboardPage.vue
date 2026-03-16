@@ -25,7 +25,7 @@ async function hydrateDashboard() {
     dossierRows.value = remoteDossiers.length > 0 ? remoteDossiers : dossierRows.value;
     documentRows.value = remoteDocuments.length > 0 ? remoteDocuments : documentRows.value;
     dataSource.value = 'PostgreSQL local';
-  } catch (error) {
+  } catch {
     dataSource.value = 'Mock local';
   }
 }

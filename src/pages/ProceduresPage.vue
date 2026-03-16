@@ -31,7 +31,7 @@ async function loadProceduresFromApi(): Promise<void> {
       rows.value = remoteRows;
     }
     dataSource.value = 'PostgreSQL local';
-  } catch (error) {
+  } catch {
     dataSource.value = 'Mock local';
   }
 }

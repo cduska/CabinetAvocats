@@ -49,7 +49,7 @@ async function loadDocumentsFromApi(): Promise<void> {
       rows.value = remoteRows;
     }
     dataSource.value = 'PostgreSQL local';
-  } catch (error) {
+  } catch {
     dataSource.value = 'Mock local';
   }
 }
@@ -90,7 +90,7 @@ async function createDocument(): Promise<void> {
 
     rows.value.unshift(created);
     dataSource.value = 'PostgreSQL local';
-  } catch (error) {
+  } catch {
     createDocumentLocally();
     dataSource.value = 'Mock local';
   }

@@ -48,7 +48,7 @@ async function loadClientsFromApi(): Promise<void> {
       rows.value = remoteRows;
     }
     dataSource.value = 'PostgreSQL local';
-  } catch (error) {
+  } catch {
     dataSource.value = 'Mock local';
   }
 }
@@ -101,7 +101,7 @@ async function addClient(): Promise<void> {
 
     rows.value.unshift(created);
     dataSource.value = 'PostgreSQL local';
-  } catch (error) {
+  } catch {
     addClientLocally();
     dataSource.value = 'Mock local';
   }

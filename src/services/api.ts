@@ -7,12 +7,14 @@ import type {
 } from '../types/domain';
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
   const response = await fetch(path, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
     ...init,
+    headers,
   });
 
   if (!response.ok) {
@@ -29,7 +31,7 @@ function toQueryString(filters: Record<string, string | null | undefined>): stri
     return '';
   }
 
-  const params = new URLSearchParams(entries as [string, string][]);
+  const params = new URLSearchParams(entries.map(([key, value]) => [key, String(value)]));
   return `?${params.toString()}`;
 }
 

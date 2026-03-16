@@ -10,9 +10,7 @@ const props = withDefaults(
   },
 );
 
-const emit = defineEmits<{
-  (event: 'close'): void;
-}>();
+const emit = defineEmits<(event: 'close') => void>();
 
 function closeDrawer(): void {
   emit('close');

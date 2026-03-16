@@ -26,7 +26,7 @@ const pageTitle = computed(() => String(route.meta.title ?? 'Dashboard'));
 watch(
   darkMode,
   (enabled) => {
-    document.documentElement.setAttribute('data-theme', enabled ? 'dark' : 'light');
+    document.documentElement.dataset.theme = enabled ? 'dark' : 'light';
     localStorage.setItem('cabinet-theme', enabled ? 'dark' : 'light');
   },
   { immediate: true },
@@ -49,7 +49,7 @@ function toggleTheme(): void {
         <button
           class="icon-button"
           type="button"
-          aria-label="Reduire navigation"
+          :aria-label="sidebarCollapsed ? '» Etendre navigation' : '« Reduire navigation'"
           @click="toggleSidebar"
         >
           {{ sidebarCollapsed ? '»' : '«' }}
