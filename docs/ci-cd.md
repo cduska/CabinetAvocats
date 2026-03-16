@@ -43,7 +43,7 @@ push / pull_request → main
 |-----|-------------|-------------|------|
 | `build` | — | push + PR | Install npm, lint, tests unitaires, build Vite |
 | `sonar` | `build` | push + PR | Analyse qualité SonarCloud + Quality Gate |
-| `cypress-run` | `build` | push + PR | Tests E2E avec Cypress (Chrome, dev server) |
+| `cypress-run` | `build` | push + PR | Tests E2E Cypress Cloud (Chrome, record, parallel x2) |
 | `publish-image` | `build`, `sonar`, `cypress-run` | push main uniquement | Build + push image Docker vers GHCR |
 | `deploy` | `build`, `sonar`, `cypress-run` | push main uniquement | Build Vite + déploiement GitHub Pages |
 | `notify` | tous les jobs ci-dessus | toujours (succès ou échec) | Envoi email de compte rendu |
@@ -72,9 +72,11 @@ push / pull_request → main
 > Le job est entièrement ignoré si le secret `SONAR_TOKEN` est absent.
 
 ### `cypress-run`
+- Exécution en matrice sur 2 conteneurs (`containers: [1, 2]`)
 - Démarre le serveur de développement (`npm run dev` sur le port 5173)
 - Attend que le serveur réponde (timeout 120 s)
 - Lance les tests Cypress en mode headless (Chrome)
+- Enregistre les runs sur Cypress Cloud (`record: true`, `parallel: true`)
 
 ### `publish-image`
 - Build de l'image Docker
@@ -98,6 +100,7 @@ push / pull_request → main
 | Secret | Obligatoire | Description |
 |--------|-------------|-------------|
 | `SONAR_TOKEN` | Recommandé | Token d'analyse SonarCloud (généré dans Compte → Sécurité) |
+| `CYPRESS_RECORD_KEY` | Pour Cypress Cloud | Clé d'enregistrement Cypress Cloud |
 | `MAIL_SERVER` | Pour notify | Serveur SMTP (ex. `smtp.gmail.com`) |
 | `MAIL_PORT` | Pour notify | Port SMTP (ex. `587` pour TLS) |
 | `MAIL_USERNAME` | Pour notify | Adresse email expéditeur |
@@ -123,16 +126,24 @@ Ces badges sont accessibles publiquement et peuvent être intégrés dans le REA
 
 ---
 
-## Autres workflows (à désactiver)
+## Badge Cypress Cloud
 
-Ces fichiers ont été générés automatiquement par GitHub et sont **redondants ou incorrects** pour ce projet :
+```markdown
+[![Cypress Cloud](https://img.shields.io/endpoint?url=https://cloud.cypress.io/badge/simple/1hszcb/main&style=flat&logo=cypress)](https://cloud.cypress.io/projects/1hszcb/runs)
+```
 
-| Fichier | Problème | Action recommandée |
-|---------|----------|--------------------|
-| `deploy.yml` | Re-déploie sur GitHub Pages indépendamment de `ci.yml` → double déploiement | Supprimer |
-| `static.yml` | Déploie les fichiers sources bruts (sans build Vite) sur Pages → résultat incorrect | Supprimer |
-| `jekyll-gh-pages.yml` | Tente un build Jekyll → incompatible avec Vue/Vite | Supprimer |
-| `docker-deploy.yml` | Push sur DockerHub en parallèle de `ci.yml` (GHCR) | Garder seulement si DockerHub est souhaité en plus de GHCR |
+---
+
+## Nettoyage des workflows
+
+Les workflows redondants suivants ont été retirés du dépôt pour éviter les déploiements en double :
+
+| Fichier | Statut | Motif |
+|---------|--------|-------|
+| `deploy.yml` | Supprimé | Double déploiement GitHub Pages |
+| `static.yml` | Supprimé | Déploiement des sources brutes sans build Vite |
+| `jekyll-gh-pages.yml` | Supprimé | Workflow Jekyll non adapté à Vue/Vite |
+| `docker-deploy.yml` | Conservé (optionnel) | Peut être utile si un push DockerHub est requis en plus de GHCR |
 
 ---
 
