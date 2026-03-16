@@ -204,6 +204,88 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./dist
 
+  notify:
+    needs: [build, sonar, cypress-run, publish-image, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    env:
+      SONAR_PROJECT_KEY: ${{ github.repository_owner }}_${{ github.event.repository.name }}
+      MAIL_CONFIGURED: ${{ secrets.MAIL_SERVER != '' && secrets.MAIL_USERNAME != '' && secrets.MAIL_TO != '' }}
+    steps:
+      - name: Send CI report email
+        if: env.MAIL_CONFIGURED == 'true'
+        continue-on-error: true
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.MAIL_SERVER }}
+          server_port: ${{ secrets.MAIL_PORT || 587 }}
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          to: ${{ secrets.MAIL_TO }}
+          from: GitHub Actions <${{ secrets.MAIL_USERNAME }}>
+          subject: >-
+            [CI] ${{ github.repository }} — ${{ github.ref_name }} —
+            ${{ (needs.build.result == 'success' && needs.sonar.result != 'failure' && needs.cypress-run.result == 'success') && 'SUCCÈS ✅' || 'ÉCHEC ❌' }}
+          html_body: |
+            <h2>Rapport CI — ${{ github.repository }}</h2>
+            <p>
+              <strong>Branche :</strong> ${{ github.ref_name }}<br>
+              <strong>Commit :</strong>
+              <a href="https://github.com/${{ github.repository }}/commit/${{ github.sha }}">
+                ${{ github.sha }}
+              </a><br>
+              <strong>Déclenché par :</strong> ${{ github.actor }}
+            </p>
+
+            <h3>Résultat des jobs</h3>
+            <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-family:sans-serif">
+              <tr style="background:#f0f0f0">
+                <th>Job</th><th>Résultat</th>
+              </tr>
+              <tr>
+                <td>build</td>
+                <td>${{ needs.build.result == 'success' && '✅ succès' || needs.build.result == 'skipped' && '⏭️ ignoré' || '❌ échec' }}</td>
+              </tr>
+              <tr>
+                <td>sonar</td>
+                <td>${{ needs.sonar.result == 'success' && '✅ succès' || needs.sonar.result == 'skipped' && '⏭️ ignoré' || '❌ échec' }}</td>
+              </tr>
+              <tr>
+                <td>cypress-run</td>
+                <td>${{ needs.cypress-run.result == 'success' && '✅ succès' || needs.cypress-run.result == 'skipped' && '⏭️ ignoré' || '❌ échec' }}</td>
+              </tr>
+              <tr>
+                <td>publish-image</td>
+                <td>${{ needs.publish-image.result == 'success' && '✅ succès' || needs.publish-image.result == 'skipped' && '⏭️ ignoré' || '❌ échec' }}</td>
+              </tr>
+              <tr>
+                <td>deploy</td>
+                <td>${{ needs.deploy.result == 'success' && '✅ succès' || needs.deploy.result == 'skipped' && '⏭️ ignoré' || '❌ échec' }}</td>
+              </tr>
+            </table>
+
+            <h3>Qualité SonarCloud</h3>
+            <p>
+              <a href="https://sonarcloud.io/dashboard?id=${{ env.SONAR_PROJECT_KEY }}&branch=${{ github.ref_name }}">
+                <img src="https://sonarcloud.io/api/project_badges/measure?project=${{ env.SONAR_PROJECT_KEY }}&metric=alert_status" alt="Quality Gate" />&nbsp;
+                <img src="https://sonarcloud.io/api/project_badges/measure?project=${{ env.SONAR_PROJECT_KEY }}&metric=coverage" alt="Coverage" />&nbsp;
+                <img src="https://sonarcloud.io/api/project_badges/measure?project=${{ env.SONAR_PROJECT_KEY }}&metric=bugs" alt="Bugs" />&nbsp;
+                <img src="https://sonarcloud.io/api/project_badges/measure?project=${{ env.SONAR_PROJECT_KEY }}&metric=vulnerabilities" alt="Vulnerabilities" />&nbsp;
+                <img src="https://sonarcloud.io/api/project_badges/measure?project=${{ env.SONAR_PROJECT_KEY }}&metric=code_smells" alt="Code Smells" />
+              </a>
+            </p>
+            <p>
+              <a href="https://sonarcloud.io/dashboard?id=${{ env.SONAR_PROJECT_KEY }}&branch=${{ github.ref_name }}">
+                Voir le tableau de bord SonarCloud complet →
+              </a>
+            </p>
+
+            <h3>Liens utiles</h3>
+            <ul>
+              <li><a href="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}">Voir ce run GitHub Actions</a></li>
+              <li><a href="https://github.com/${{ github.repository }}/commit/${{ github.sha }}">Voir le commit</a></li>
+            </ul>
+
   cypress-run:
     runs-on: ubuntu-latest
     needs: build
