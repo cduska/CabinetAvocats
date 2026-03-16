@@ -109,13 +109,31 @@ jobs:
 
           echo "project_key=$resolved_project_key" >> "$GITHUB_OUTPUT"
 
-          if curl --silent --show-error --fail -u "$SONAR_TOKEN:" \
-            -X POST "$SONAR_HOST_URL/api/project_branches/rename" \
-            -d "project=$resolved_project_key" \
-            -d "name=main" > /dev/null; then
-            echo "Sonar main branch is set to main."
+          branches_json="$(curl --silent --show-error --fail -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/project_branches/list?project=$resolved_project_key")"
+          current_main_branch="$(printf '%s' "$branches_json" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const b=(j.branches||[]).find(x=>x.isMain);process.stdout.write(b?b.name:'');});")"
+          main_branch_exists="$(printf '%s' "$branches_json" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);const exists=(j.branches||[]).some(x=>x.name==='main');process.stdout.write(exists?'yes':'no');});")"
+
+          if [ "$current_main_branch" = "main" ]; then
+            echo "Sonar main branch is already main."
+          elif [ -n "$current_main_branch" ]; then
+            if [ "$main_branch_exists" = "yes" ]; then
+              echo "Deleting non-main branch 'main' before renaming default branch."
+              curl --silent --show-error --fail -u "$SONAR_TOKEN:" \
+                -X POST "$SONAR_HOST_URL/api/project_branches/delete" \
+                -d "project=$resolved_project_key" \
+                -d "branch=main" > /dev/null
+            fi
+
+            if curl --silent --show-error --fail -u "$SONAR_TOKEN:" \
+              -X POST "$SONAR_HOST_URL/api/project_branches/rename" \
+              -d "project=$resolved_project_key" \
+              -d "name=main" > /dev/null; then
+              echo "Sonar main branch is now main."
+            else
+              echo "Could not set Sonar main branch to main automatically."
+            fi
           else
-            echo "Could not set Sonar main branch to main automatically."
+            echo "No Sonar main branch reported yet; keeping scanner defaults."
           fi
       - name: Run Sonar analysis
         if: env.SONAR_TOKEN != ''
