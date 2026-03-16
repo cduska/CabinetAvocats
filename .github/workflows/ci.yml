@@ -32,6 +32,7 @@ jobs:
         run: docker build -t cabinet-avocats .
 
       - name: Log in to GitHub Container Registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -39,9 +40,11 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Tag Docker image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: docker tag cabinet-avocats ghcr.io/cduska/cabinet-avocats:latest
 
       - name: Push Docker image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: docker push ghcr.io/cduska/cabinet-avocats:latest
 
 
