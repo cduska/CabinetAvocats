@@ -108,6 +108,15 @@ jobs:
           fi
 
           echo "project_key=$resolved_project_key" >> "$GITHUB_OUTPUT"
+
+          if curl --silent --show-error --fail -u "$SONAR_TOKEN:" \
+            -X POST "$SONAR_HOST_URL/api/project_branches/rename" \
+            -d "project=$resolved_project_key" \
+            -d "name=main" > /dev/null; then
+            echo "Sonar main branch is set to main."
+          else
+            echo "Could not set Sonar main branch to main automatically."
+          fi
       - name: Run Sonar analysis
         if: env.SONAR_TOKEN != ''
         env:
