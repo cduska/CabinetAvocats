@@ -5,6 +5,7 @@ import { query, testConnection } from './db.js';
 dotenv.config();
 
 const app = express();
+app.disable('x-powered-by');
 const apiPort = Number(process.env.API_PORT || 8787);
 
 app.use(express.json({ limit: '1mb' }));
