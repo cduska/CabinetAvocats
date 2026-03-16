@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import DataTable from '../components/ui/DataTable.vue';
 import DrawerPanel from '../components/ui/DrawerPanel.vue';
 import { documents } from '../data/mockData';
+import { useAccessControl } from '../services/access';
 import {
   createDocument as createDocumentApi,
   getDocuments,
@@ -14,6 +15,8 @@ const typeFilter = ref('all');
 const statusFilter = ref('all');
 const drawerOpen = ref(false);
 const dataSource = ref('Mock local');
+const { canPerformAction } = useAccessControl();
+const canCreateDocument = computed(() => canPerformAction('documents:create'));
 
 const form = reactive({
   type: 'Note interne',
@@ -76,6 +79,10 @@ function createDocumentLocally(): void {
 }
 
 async function createDocument(): Promise<void> {
+  if (!canCreateDocument.value) {
+    return;
+  }
+
   if (!form.type || !form.auteur) {
     return;
   }
@@ -101,6 +108,14 @@ async function createDocument(): Promise<void> {
   form.auteur = '';
   form.statut = 'Brouillon';
 }
+
+function openDrawer(): void {
+  if (!canCreateDocument.value) {
+    return;
+  }
+
+  drawerOpen.value = true;
+}
 </script>
 
 <template>
@@ -109,9 +124,10 @@ async function createDocument(): Promise<void> {
       <div>
         <p class="action-bar-title">Gestion documentaire</p>
         <p class="action-bar-caption">Source: {{ dataSource }}</p>
+        <p v-if="!canCreateDocument" class="action-bar-caption">Mode lecture seule sur la creation de document.</p>
       </div>
       <div class="action-bar-actions">
-        <button class="button" type="button" @click="drawerOpen = true">Nouveau document</button>
+        <button class="button" type="button" :disabled="!canCreateDocument" @click="openDrawer">Nouveau document</button>
       </div>
     </div>
 
@@ -180,7 +196,7 @@ async function createDocument(): Promise<void> {
 
       <template #footer>
         <button class="button button-secondary" type="button" @click="drawerOpen = false">Annuler</button>
-        <button class="button" type="button" @click="createDocument">Ajouter</button>
+        <button class="button" type="button" :disabled="!canCreateDocument" @click="createDocument">Ajouter</button>
       </template>
     </DrawerPanel>
   </section>

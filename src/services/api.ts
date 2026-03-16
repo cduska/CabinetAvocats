@@ -5,9 +5,18 @@ import type {
   Dossier,
   ProcedureItem,
 } from '../types/domain';
+import { getSessionHeaders } from './session';
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
+
+  const sessionHeaders = getSessionHeaders();
+  for (const [name, value] of Object.entries(sessionHeaders)) {
+    if (value && !headers.has(name)) {
+      headers.set(name, value);
+    }
+  }
+
   if (!headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }

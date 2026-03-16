@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import MetricCard from '../components/ui/MetricCard.vue';
 import { dashboardMetrics, documents, dossiers } from '../data/mockData';
+import { useAccessControl } from '../services/access';
 import {
   getDashboardMetrics,
   getDocuments,
@@ -12,6 +13,9 @@ const dataSource = ref('Mock local');
 const metrics = ref([...dashboardMetrics]);
 const dossierRows = ref([...dossiers]);
 const documentRows = ref([...documents]);
+const { canPerformAction } = useAccessControl();
+const canCreateDossier = computed(() => canPerformAction('dashboard:create-dossier'));
+const canExportActivity = computed(() => canPerformAction('dashboard:export-activity'));
 
 async function hydrateDashboard() {
   try {
@@ -52,10 +56,13 @@ const pendingDocuments = computed(() =>
       <div>
         <p class="action-bar-title">Centre de pilotage</p>
         <p class="action-bar-caption">Source: {{ dataSource }}</p>
+        <p v-if="!canCreateDossier || !canExportActivity" class="action-bar-caption">
+          Certaines actions sont en lecture seule pour ce metier.
+        </p>
       </div>
       <div class="action-bar-actions">
-        <button class="button">Nouveau dossier</button>
-        <button class="button button-secondary">Exporter activite</button>
+        <button class="button" type="button" :disabled="!canCreateDossier">Nouveau dossier</button>
+        <button class="button button-secondary" type="button" :disabled="!canExportActivity">Exporter activite</button>
       </div>
     </div>
 

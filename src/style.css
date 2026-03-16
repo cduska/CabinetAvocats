@@ -121,13 +121,27 @@ label {
   position: sticky;
   top: 0;
   height: 100vh;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   background: var(--bg-panel);
   border-right: 1px solid var(--border-color);
   padding: 0.9rem;
   display: grid;
   grid-template-rows: auto 1fr;
   gap: 0.8rem;
+}
+
+.app-shell.is-collapsed .sidebar-header {
+  justify-content: center;
+}
+
+.app-shell.is-collapsed .sidebar-brand {
+  display: none;
+}
+
+.app-shell.is-collapsed .sidebar-link {
+  justify-content: center;
+  padding-inline: 0.45rem;
 }
 
 .sidebar-header {
@@ -219,10 +233,36 @@ label {
   margin-bottom: 0.15rem;
 }
 
+.topbar-session {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  margin-top: 0.25rem;
+}
+
 .topbar-actions {
   display: flex;
-  align-items: center;
+  align-items: end;
   gap: 0.6rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.session-switcher {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(140px, 1fr));
+  gap: 0.45rem;
+}
+
+.session-field {
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  color: var(--text-subtle);
+}
+
+.session-select {
+  min-height: 34px;
+  font-size: 0.8rem;
+  padding: 0.28rem 0.45rem;
 }
 
 .page-content {
@@ -718,6 +758,10 @@ tbody tr:hover {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .session-switcher {
+    grid-template-columns: repeat(2, minmax(130px, 1fr));
+  }
+
   .dashboard-columns {
     grid-template-columns: 1fr;
   }
@@ -755,6 +799,15 @@ tbody tr:hover {
     top: 0;
   }
 
+  .topbar-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .session-switcher {
+    width: 100%;
+  }
+
   .action-bar {
     top: 66px;
   }
@@ -773,6 +826,11 @@ tbody tr:hover {
 
   .metrics-grid {
     grid-template-columns: 1fr;
+  }
+
+  .session-switcher {
+    grid-template-columns: 1fr;
+    width: 100%;
   }
 
   .sidebar-nav {

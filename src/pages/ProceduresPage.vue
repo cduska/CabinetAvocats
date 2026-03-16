@@ -2,12 +2,15 @@
 import { computed, onMounted, ref } from 'vue';
 import DataTable from '../components/ui/DataTable.vue';
 import { procedures } from '../data/mockData';
+import { useAccessControl } from '../services/access';
 import { getProcedures } from '../services/api';
 import type { ProcedureItem } from '../types/domain';
 
 const rows = ref<ProcedureItem[]>([...procedures]);
 const statusFilter = ref('all');
 const dataSource = ref('Mock local');
+const { canPerformAction } = useAccessControl();
+const canPlanProcedure = computed(() => canPerformAction('procedures:plan'));
 
 const columns = [
   { key: 'id', label: 'ID', sortable: true, align: 'center' as const },
@@ -47,9 +50,10 @@ onMounted(() => {
       <div>
         <p class="action-bar-title">Suivi des procedures</p>
         <p class="action-bar-caption">Source: {{ dataSource }}</p>
+        <p v-if="!canPlanProcedure" class="action-bar-caption">Mode lecture seule sur la planification.</p>
       </div>
       <div class="action-bar-actions">
-        <button class="button button-secondary" type="button">Planifier audience</button>
+        <button class="button button-secondary" type="button" :disabled="!canPlanProcedure">Planifier audience</button>
       </div>
     </div>
 

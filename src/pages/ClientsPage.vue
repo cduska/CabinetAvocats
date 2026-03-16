@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import DrawerPanel from '../components/ui/DrawerPanel.vue';
 import DataTable from '../components/ui/DataTable.vue';
 import { clients } from '../data/mockData';
+import { useAccessControl } from '../services/access';
 import { createClient as createClientApi, getClients } from '../services/api';
 import type { Client } from '../types/domain';
 
@@ -19,6 +20,8 @@ const rows = ref<Client[]>([...clients]);
 const agenceFilter = ref('all');
 const drawerOpen = ref(false);
 const dataSource = ref('Mock local');
+const { canPerformAction } = useAccessControl();
+const canCreateClient = computed(() => canPerformAction('clients:create'));
 
 const form = reactive({
   nom: '',
@@ -85,6 +88,10 @@ function addClientLocally(): void {
 }
 
 async function addClient(): Promise<void> {
+  if (!canCreateClient.value) {
+    return;
+  }
+
   if (!form.nom || !form.prenom || !form.email) {
     return;
   }
@@ -109,6 +116,14 @@ async function addClient(): Promise<void> {
   drawerOpen.value = false;
   resetForm();
 }
+
+function openDrawer(): void {
+  if (!canCreateClient.value) {
+    return;
+  }
+
+  drawerOpen.value = true;
+}
 </script>
 
 <template>
@@ -117,9 +132,10 @@ async function addClient(): Promise<void> {
       <div>
         <p class="action-bar-title">Gestion des clients</p>
         <p class="action-bar-caption">Source: {{ dataSource }}</p>
+        <p v-if="!canCreateClient" class="action-bar-caption">Mode lecture seule sur la creation de client.</p>
       </div>
       <div class="action-bar-actions">
-        <button class="button" type="button" data-cy="add-client" @click="drawerOpen = true">
+        <button class="button" type="button" :disabled="!canCreateClient" data-cy="add-client" @click="openDrawer">
           Nouveau client
         </button>
       </div>
@@ -178,7 +194,7 @@ async function addClient(): Promise<void> {
 
       <template #footer>
         <button class="button button-secondary" type="button" @click="drawerOpen = false">Annuler</button>
-        <button class="button" type="button" @click="addClient">Enregistrer</button>
+        <button class="button" type="button" :disabled="!canCreateClient" @click="addClient">Enregistrer</button>
       </template>
     </DrawerPanel>
   </section>

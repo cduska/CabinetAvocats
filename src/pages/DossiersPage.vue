@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import DataTable from '../components/ui/DataTable.vue';
 import DrawerPanel from '../components/ui/DrawerPanel.vue';
 import { dossiers } from '../data/mockData';
+import { useAccessControl } from '../services/access';
 import { createDossier as createDossierApi, getDossiers } from '../services/api';
 import type { Dossier } from '../types/domain';
 
@@ -12,6 +13,8 @@ const step = ref(1);
 const statusFilter = ref('all');
 const agencyFilter = ref('all');
 const dataSource = ref('Mock local');
+const { canPerformAction } = useAccessControl();
+const canCreateDossier = computed(() => canPerformAction('dossiers:create'));
 
 const columns = [
   { key: 'reference', label: 'Reference', sortable: true },
@@ -76,6 +79,10 @@ function resetForm(): void {
 }
 
 function openDrawer(): void {
+  if (!canCreateDossier.value) {
+    return;
+  }
+
   resetForm();
   drawerOpen.value = true;
 }
@@ -86,6 +93,10 @@ function closeDrawer(): void {
 }
 
 function nextStep(): void {
+  if (!canCreateDossier.value) {
+    return;
+  }
+
   if (step.value === 1 && canContinueStepOne.value) {
     step.value = 2;
   }
@@ -116,6 +127,10 @@ function createDossierLocally(): void {
 }
 
 async function createDossier(): Promise<void> {
+  if (!canCreateDossier.value) {
+    return;
+  }
+
   if (!form.reference || !form.client || !form.echeance) {
     return;
   }
@@ -149,9 +164,10 @@ async function createDossier(): Promise<void> {
       <div>
         <p class="action-bar-title">Gestion des dossiers</p>
         <p class="action-bar-caption">Source: {{ dataSource }}</p>
+        <p v-if="!canCreateDossier" class="action-bar-caption">Mode lecture seule sur la creation de dossier.</p>
       </div>
       <div class="action-bar-actions">
-        <button class="button" type="button" data-cy="add-dossier" @click="openDrawer">
+        <button class="button" type="button" :disabled="!canCreateDossier" data-cy="add-dossier" @click="openDrawer">
           Creer un dossier
         </button>
       </div>
@@ -252,14 +268,14 @@ async function createDossier(): Promise<void> {
           v-if="step === 1"
           class="button"
           type="button"
-          :disabled="!canContinueStepOne"
+          :disabled="!canContinueStepOne || !canCreateDossier"
           @click="nextStep"
         >
           Continuer
         </button>
         <template v-else>
           <button class="button button-secondary" type="button" @click="previousStep">Precedent</button>
-          <button class="button" type="button" @click="createDossier">Creer</button>
+          <button class="button" type="button" :disabled="!canCreateDossier" @click="createDossier">Creer</button>
         </template>
       </template>
     </DrawerPanel>

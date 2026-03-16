@@ -6,6 +6,8 @@ import DossiersPage from '../pages/DossiersPage.vue';
 import DocumentsPage from '../pages/DocumentsPage.vue';
 import ProceduresPage from '../pages/ProceduresPage.vue';
 import SchemaPage from '../pages/SchemaPage.vue';
+import { getFirstAccessibleRoute, isRouteName, routeAccessMatrix } from '../services/access';
+import { getCurrentMetier } from '../services/session';
 
 const routes: RouteRecordRaw[] = [
   {
@@ -22,6 +24,7 @@ const routes: RouteRecordRaw[] = [
         component: DashboardPage,
         meta: {
           title: 'Dashboard',
+          allowedMetiers: routeAccessMatrix.dashboard,
         },
       },
       {
@@ -30,6 +33,7 @@ const routes: RouteRecordRaw[] = [
         component: ClientsPage,
         meta: {
           title: 'Clients',
+          allowedMetiers: routeAccessMatrix.clients,
         },
       },
       {
@@ -38,6 +42,7 @@ const routes: RouteRecordRaw[] = [
         component: DossiersPage,
         meta: {
           title: 'Dossiers',
+          allowedMetiers: routeAccessMatrix.dossiers,
         },
       },
       {
@@ -46,6 +51,7 @@ const routes: RouteRecordRaw[] = [
         component: ProceduresPage,
         meta: {
           title: 'Procedures',
+          allowedMetiers: routeAccessMatrix.procedures,
         },
       },
       {
@@ -54,6 +60,7 @@ const routes: RouteRecordRaw[] = [
         component: DocumentsPage,
         meta: {
           title: 'Documents',
+          allowedMetiers: routeAccessMatrix.documents,
         },
       },
       {
@@ -62,6 +69,7 @@ const routes: RouteRecordRaw[] = [
         component: SchemaPage,
         meta: {
           title: 'Schema',
+          allowedMetiers: routeAccessMatrix.schema,
         },
       },
     ],
@@ -71,6 +79,21 @@ const routes: RouteRecordRaw[] = [
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
+});
+
+router.beforeEach((to) => {
+  if (!isRouteName(to.name)) {
+    return true;
+  }
+
+  const metier = getCurrentMetier();
+  const allowedMetiers = to.meta.allowedMetiers as readonly string[] | undefined;
+
+  if (!allowedMetiers || allowedMetiers.includes(metier)) {
+    return true;
+  }
+
+  return { name: getFirstAccessibleRoute(metier) };
 });
 
 export default router;
