@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:full": "concurrently -k -n api,web -c blue,green \"npm:api:dev\" \"npm:dev\"",
     "api:dev": "node --watch server/index.js",
     "api:start": "node server/index.js",
     "db:seed": "npm run db:seed:quick",
@@ -25,6 +26,7 @@
     "@types/node": "^24.12.0",
     "@vitejs/plugin-vue": "^6.0.5",
     "@vue/tsconfig": "^0.9.0",
+    "concurrently": "^9.2.1",
     "cypress": "^15.12.0",
     "typescript": "~5.9.3",
     "vite": "^8.0.0",

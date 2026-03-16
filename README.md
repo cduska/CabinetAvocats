@@ -87,6 +87,23 @@ Si `psql` n'est pas disponible, les commandes npm ci-dessus utilisent `node + pg
 npm install
 ```
 
+## Demarrage (recommande)
+
+```bash
+npm run dev:full
+```
+
+Cette commande lance l'API sur `http://127.0.0.1:8787` et le front Vite sur `http://localhost:5173`.
+
+Si vous voyez dans le terminal front:
+
+```text
+[vite] http proxy error: /api/dashboard
+Error: connect ECONNREFUSED 127.0.0.1:8787
+```
+
+cela signifie en pratique que l'API n'est pas demarree sur le port `8787`.
+
 ## Demarrage (2 terminaux)
 
 Terminal 1 (API PostgreSQL):
@@ -114,3 +131,21 @@ npm run build
 ```bash
 npx cypress run --browser electron
 ```
+
+## Analyse Sonar
+
+Le pipeline GitHub Actions peut lancer une analyse SonarCloud si le secret `SONAR_TOKEN` est configure.
+
+Configuration recommandee dans GitHub:
+
+- Secret: `SONAR_TOKEN`
+
+Comportement par defaut:
+
+- le workflow cible `https://sonarcloud.io`
+- la cle projet est calculee comme `<owner>_<repo>`
+- l'organisation SonarCloud utilise le owner GitHub
+
+Quand Sonar est active, l'analyse devient bloquante pour la CD: le deploy GitHub Pages et le push d'image Docker n'ont lieu que si le quality gate Sonar passe.
+
+Si vous utilisez un SonarQube auto-heberge au lieu de SonarCloud, adaptez le job `sonar` dans [.github/workflows/ci.yml](.github/workflows/ci.yml).
