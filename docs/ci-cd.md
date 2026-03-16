@@ -90,8 +90,8 @@ push / pull_request → main
 ### `notify`
 - Construit un résumé HTML de tous les jobs
 - Affiche les statuts Sonar + Cypress en texte (robuste même si images externes bloquées)
-- Ajoute un lien direct vers le dashboard SonarCloud et vers Cypress Cloud
-- Intègre le badge Cypress Cloud
+- Ajoute un lien direct vers le dashboard SonarCloud et vers le run Cypress Cloud détaillé
+- N'intègre pas de badge Cypress si le projet Cypress Cloud est privé
 - Envoie l'email via SMTP (secrets à configurer — voir section Secrets)
 - S'exécute toujours, même si un job précédent a échoué
 
@@ -135,6 +135,8 @@ Ces badges sont accessibles publiquement et peuvent être intégrés dans le REA
 ```markdown
 [![Cypress Cloud](https://img.shields.io/endpoint?url=https://cloud.cypress.io/badge/simple/1hszcb/main&style=flat&logo=cypress)](https://cloud.cypress.io/projects/1hszcb/runs)
 ```
+
+> Note: les badges Cypress Cloud sont disponibles pour les projets publics. Si le projet est privé, utiliser un lien vers la page des runs au lieu d'une image de badge.
 
 ---
 

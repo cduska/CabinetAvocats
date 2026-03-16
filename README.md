@@ -3,8 +3,9 @@
 Application intranet Vue 3 (Vite + TypeScript) pour la gestion d'un cabinet d'avocats.
 
 [![CI](https://github.com/cduska/CabinetAvocats/actions/workflows/ci.yml/badge.svg)](https://github.com/cduska/CabinetAvocats/actions/workflows/ci.yml)
-[![Cypress Cloud](https://img.shields.io/endpoint?url=https://cloud.cypress.io/badge/simple/1hszcb/main&style=flat&logo=cypress)](https://cloud.cypress.io/projects/1hszcb/runs)
 [![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=cduska_CabinetAvocats&metric=alert_status)](https://sonarcloud.io/dashboard?id=cduska_CabinetAvocats)
+
+[Voir les runs Cypress Cloud (connexion requise)](https://cloud.cypress.io/projects/1hszcb/runs)
 
 ## Prerequis
 
