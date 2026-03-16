@@ -1,5 +1,6 @@
 import { computed, reactive, readonly } from 'vue';
 
+const STORAGE_KEY = 'cabinet-session-v1';
 const SESSION_METIERS = ['Associee', 'Collaborateur', 'Juriste', 'Assistante'] as const;
 
 export type SessionMetier = (typeof SESSION_METIERS)[number];
@@ -32,6 +33,8 @@ type UserFixture = readonly [
   agencyId: string,
 ];
 
+type PersistedSessionState = Partial<SessionState>;
+
 const agencies: SessionAgency[] = [
   { id: 'paris', label: 'Paris' },
   { id: 'lyon', label: 'Lyon' },
@@ -62,6 +65,45 @@ const users: SessionUser[] = userFixtures.map(([id, firstName, lastName, metier,
 const metiers: SessionMetier[] = [...SESSION_METIERS];
 const knownMetiers = new Set<SessionMetier>(metiers);
 
+function canUseStorage(): boolean {
+  return globalThis.window !== undefined && globalThis.localStorage !== undefined;
+}
+
+function readPersistedState(): PersistedSessionState | null {
+  if (!canUseStorage()) {
+    return null;
+  }
+
+  try {
+    const raw = globalThis.localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? (parsed as PersistedSessionState) : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistState(nextState: SessionState): void {
+  if (!canUseStorage()) {
+    return;
+  }
+
+  try {
+    const payload: SessionState = {
+      agencyId: nextState.agencyId,
+      metier: nextState.metier,
+      userId: nextState.userId,
+    };
+    globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // Ignore storage write failures (private mode, quota) and keep session in-memory.
+  }
+}
+
 function isKnownAgency(agencyId: string): boolean {
   return agencies.some((agency) => agency.id === agencyId);
 }
@@ -86,14 +128,26 @@ function getUsersForSelection(agencyId: string, metier: SessionMetier): SessionU
 }
 
 function buildInitialState(): SessionState {
+  const persisted = readPersistedState();
+
   const fallbackAgencyId = agencies[0]?.id ?? '';
-  const fallbackMetier = getMetiersForAgency(fallbackAgencyId)[0] ?? SESSION_METIERS[0];
-  const fallbackUserId = getUsersForSelection(fallbackAgencyId, fallbackMetier)[0]?.id ?? '';
+  const requestedAgencyId = persisted?.agencyId ?? fallbackAgencyId;
+  const agencyId = isKnownAgency(requestedAgencyId) ? requestedAgencyId : fallbackAgencyId;
+
+  const agencyMetiers = getMetiersForAgency(agencyId);
+  const fallbackMetier = agencyMetiers[0] ?? SESSION_METIERS[0];
+  const requestedMetier = persisted?.metier ?? fallbackMetier;
+  const metier = isKnownMetier(requestedMetier) && agencyMetiers.includes(requestedMetier) ? requestedMetier : fallbackMetier;
+
+  const candidateUsers = getUsersForSelection(agencyId, metier);
+  const fallbackUserId = candidateUsers[0]?.id ?? '';
+  const requestedUserId = persisted?.userId ?? fallbackUserId;
+  const userId = candidateUsers.some((user) => user.id === requestedUserId) ? requestedUserId : fallbackUserId;
 
   return {
-    agencyId: fallbackAgencyId,
-    metier: fallbackMetier,
-    userId: fallbackUserId,
+    agencyId,
+    metier,
+    userId,
   };
 }
 
@@ -118,6 +172,7 @@ function normalizeState(): void {
 }
 
 normalizeState();
+persistState(state);
 
 const availableMetiers = computed(() => getMetiersForAgency(state.agencyId));
 const availableUsers = computed(() => getUsersForSelection(state.agencyId, state.metier));
@@ -127,6 +182,7 @@ const currentAgency = computed(() => agencies.find((agency) => agency.id === sta
 function setAgency(agencyId: string): void {
   state.agencyId = agencyId;
   normalizeState();
+  persistState(state);
 }
 
 function setMetier(metier: string): void {
@@ -136,6 +192,7 @@ function setMetier(metier: string): void {
 
   state.metier = metier;
   normalizeState();
+  persistState(state);
 }
 
 function setUser(userId: string): void {
@@ -145,6 +202,7 @@ function setUser(userId: string): void {
   }
 
   state.userId = userId;
+  persistState(state);
 }
 
 export function getSessionHeaders(): Record<string, string> {

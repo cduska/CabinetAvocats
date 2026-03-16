@@ -85,7 +85,11 @@ push / pull_request → main
 
 ### `deploy`
 - `npm ci` + `npm run build`
-- Déploiement du dossier `dist/` sur GitHub Pages via `peaceiris/actions-gh-pages`
+- Copie de `dist/index.html` vers `dist/404.html` pour le fallback SPA
+- Upload de l'artefact Pages (`actions/upload-pages-artifact`)
+- Publication via `actions/deploy-pages`
+
+> Sur GitHub Pages, les routes SPA peuvent répondre en HTTP `404` tout en renvoyant le shell applicatif (fichier `404.html`) ; le rendu côté client reste fonctionnel.
 
 ### `notify`
 - Construit un résumé HTML de tous les jobs
