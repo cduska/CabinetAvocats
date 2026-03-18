@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import DataTable from '../components/ui/DataTable.vue';
 import DrawerPanel from '../components/ui/DrawerPanel.vue';
 import { useAccessControl } from '../services/access';
@@ -7,6 +8,7 @@ import { createDocument as createDocumentApi, getDocuments, getDossiers } from '
 import { useSession } from '../services/session';
 import type { DocumentItem, Dossier } from '../types/domain';
 
+const route = useRoute();
 const rows = ref<DocumentItem[]>([]);
 const typeFilter = ref('all');
 const statusFilter = ref('all');
@@ -36,13 +38,40 @@ const columns = [
 
 const types = computed(() => ['all', ...new Set(rows.value.map((item) => item.type))]);
 const statuses = computed(() => ['all', ...new Set(rows.value.map((item) => item.statut))]);
+const isPendingValidationPreset = computed(() => String(route.query.preset ?? '').toLowerCase() === 'pending-validation');
+
+function formatDateAsIso(dateValue: Date): string {
+  return dateValue.toISOString().slice(0, 10);
+}
+
+function isPendingValidationDocument(item: DocumentItem): boolean {
+  const creationDate = item.dateCreation?.trim();
+  if (!creationDate) {
+    return true;
+  }
+
+  const threshold = new Date();
+  threshold.setHours(0, 0, 0, 0);
+  threshold.setDate(threshold.getDate() - 30);
+
+  return creationDate >= formatDateAsIso(threshold);
+}
 
 const filteredRows = computed(() =>
-  rows.value.filter((item) => {
-    const typeMatch = typeFilter.value === 'all' || item.type === typeFilter.value;
-    const statusMatch = statusFilter.value === 'all' || item.statut === statusFilter.value;
-    return typeMatch && statusMatch;
-  }),
+  {
+    const filtered = rows.value.filter((item) => {
+      const typeMatch = typeFilter.value === 'all' || item.type === typeFilter.value;
+      const statusMatch = statusFilter.value === 'all' || item.statut === statusFilter.value;
+      const pendingPresetMatch = !isPendingValidationPreset.value || isPendingValidationDocument(item);
+      return typeMatch && statusMatch && pendingPresetMatch;
+    });
+
+    if (!isPendingValidationPreset.value) {
+      return filtered;
+    }
+
+    return [...filtered].sort((left, right) => right.dateCreation.localeCompare(left.dateCreation));
+  },
 );
 
 async function loadReferences() {
@@ -109,6 +138,7 @@ function openDrawer(): void {
       <div>
         <p class="action-bar-title">Gestion documentaire</p>
         <p class="action-bar-caption">Source: {{ dataSource }}</p>
+        <p v-if="isPendingValidationPreset" class="action-bar-caption">Vue pre-triee: documents sans date ou crees depuis 30 jours.</p>
         <p v-if="!canCreateDocument" class="action-bar-caption">Mode lecture seule sur la creation de document.</p>
       </div>
       <div class="action-bar-actions">

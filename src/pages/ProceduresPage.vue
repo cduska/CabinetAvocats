@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import DataTable from '../components/ui/DataTable.vue';
 import { useAccessControl } from '../services/access';
 import { getDossiers, getProcedures } from '../services/api';
 import { useSession } from '../services/session';
 import type { ProcedureItem, Dossier } from '../types/domain';
 
+const route = useRoute();
 const rows = ref<ProcedureItem[]>([]);
 const dossiers = ref<Dossier[]>([]);
 const statusFilter = ref('all');
@@ -24,9 +26,45 @@ const columns = [
 ];
 
 const statuses = computed(() => ['all', ...new Set(rows.value.map((item) => item.statut))]);
+const isDelayedPreset = computed(() => String(route.query.preset ?? '').toLowerCase() === 'delayed');
+
+function isDelayedProcedure(item: ProcedureItem): boolean {
+  const hasEndDate = Boolean(item.fin && item.fin.trim().length > 0);
+  if (hasEndDate) {
+    return false;
+  }
+
+  const startDateRaw = item.debut?.trim();
+  if (!startDateRaw) {
+    return false;
+  }
+
+  const startDate = new Date(`${startDateRaw}T00:00:00`);
+  if (Number.isNaN(startDate.getTime())) {
+    return false;
+  }
+
+  const threshold = new Date();
+  threshold.setHours(0, 0, 0, 0);
+  threshold.setDate(threshold.getDate() - 14);
+
+  return startDate < threshold;
+}
 
 const filteredRows = computed(() =>
-  rows.value.filter((item) => statusFilter.value === 'all' || item.statut === statusFilter.value),
+  {
+    const filtered = rows.value.filter((item) => {
+      const statusMatch = statusFilter.value === 'all' || item.statut === statusFilter.value;
+      const delayedPresetMatch = !isDelayedPreset.value || isDelayedProcedure(item);
+      return statusMatch && delayedPresetMatch;
+    });
+
+    if (!isDelayedPreset.value) {
+      return filtered;
+    }
+
+    return [...filtered].sort((left, right) => left.debut.localeCompare(right.debut));
+  },
 );
 
 async function loadReferences() {
@@ -59,6 +97,7 @@ watch(
       <div>
         <p class="action-bar-title">Suivi des procedures</p>
         <p class="action-bar-caption">Source: {{ dataSource }}</p>
+        <p v-if="isDelayedPreset" class="action-bar-caption">Vue pre-triee: procedures ouvertes depuis plus de 14 jours.</p>
         <p v-if="!canPlanProcedure" class="action-bar-caption">Mode lecture seule sur la planification.</p>
       </div>
       <div class="action-bar-actions">

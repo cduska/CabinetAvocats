@@ -24,9 +24,13 @@ export interface Client {
 export interface Dossier {
   id: number;
   reference: string;
+  clientId?: number | null;
   client: string;
+  typeId?: number | null;
   type: string;
+  statutId?: number | null;
   statut: string;
+  agenceId?: number | null;
   agence: string;
   ouverture: string;
   echeance: string;
@@ -35,10 +39,21 @@ export interface Dossier {
 
 export interface ProcedureItem {
   id: number;
+  dossierId?: number | null;
   dossierReference: string;
+  typeId?: number | null;
   type: string;
+  statutId?: number | null;
   statut: string;
   juridiction: string;
+  debut: string;
+  fin?: string;
+}
+
+export interface ProcedureInstance {
+  id: number;
+  type: string;
+  statut: string;
   debut: string;
   fin?: string;
 }
@@ -63,10 +78,23 @@ export interface Collaborateur {
 }
 
 export interface DashboardMetric {
+  code: string;
   label: string;
   value: string;
   trend: string;
   trendUp: boolean;
+}
+
+export interface AudienceItem {
+  id: number;
+  procedureId?: number | null;
+  dossierReference: string;
+  dossierType: string;
+  procedureType: string;
+  procedureStatut: string;
+  instanceType: string;
+  dateAudience: string;
+  commentaire: string;
 }
 
 // Types pour les listes de référence

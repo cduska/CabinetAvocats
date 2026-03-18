@@ -5,6 +5,10 @@ export async function getStatutsDossier() {
   return requestJson<StatutDossier[]>('/api/statut_dossier');
 }
 
+export async function getStatutsProcedure() {
+  return requestJson<StatutDossier[]>('/api/statut_procedure');
+}
+
 export async function getTypesDossier() {
   return requestJson<TypeDossier[]>('/api/type_dossier');
 }

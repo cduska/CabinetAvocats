@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import DataTable from '../components/ui/DataTable.vue';
 import DrawerPanel from '../components/ui/DrawerPanel.vue';
 import { useAccessControl } from '../services/access';
@@ -7,6 +8,7 @@ import { createDossier as createDossierApi, getAgences, getClients, getDossiers,
 import { useSession } from '../services/session';
 import type { Dossier, Client, StatutDossier, TypeDossier, Agence } from '../types/domain';
 
+const route = useRoute();
 const rows = ref<Dossier[]>([]);
 const drawerOpen = ref(false);
 const step = ref(1);
@@ -46,12 +48,32 @@ const clients = ref<Client[]>([]);
 const agencies = computed(() => ['all', ...new Set(rows.value.map((item) => item.agence))]);
 const statuses = computed(() => ['all', ...new Set(rows.value.map((item) => item.statut))]);
 
+const isActivePreset = computed(() => String(route.query.preset ?? '').toLowerCase() === 'active');
+
+function normalizeText(value: unknown): string {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replaceAll(/[\u0300-\u036f]/g, '');
+}
+
 const filteredRows = computed(() =>
-  rows.value.filter((item) => {
-    const statusMatch = statusFilter.value === 'all' || item.statut === statusFilter.value;
-    const agencyMatch = agencyFilter.value === 'all' || item.agence === agencyFilter.value;
-    return statusMatch && agencyMatch;
-  }),
+  {
+    const filtered = rows.value.filter((item) => {
+      const statusMatch = statusFilter.value === 'all' || item.statut === statusFilter.value;
+      const agencyMatch = agencyFilter.value === 'all' || item.agence === agencyFilter.value;
+      const normalizedStatus = normalizeText(item.statut);
+      const activePresetMatch = !isActivePreset.value || !['cloture', 'clos'].includes(normalizedStatus);
+      return statusMatch && agencyMatch && activePresetMatch;
+    });
+
+    if (!isActivePreset.value) {
+      return filtered;
+    }
+
+    return [...filtered].sort((left, right) => left.echeance.localeCompare(right.echeance));
+  },
 );
 
 const canContinueStepOne = computed(() => Boolean(form.reference && form.client && form.type));
@@ -163,6 +185,7 @@ async function createDossier(): Promise<void> {
       <div>
         <p class="action-bar-title">Gestion des dossiers</p>
         <p class="action-bar-caption">Source: {{ dataSource }}</p>
+        <p v-if="isActivePreset" class="action-bar-caption">Vue pre-triee: dossiers actifs, classes par echeance.</p>
         <p v-if="!canCreateDossier" class="action-bar-caption">Mode lecture seule sur la creation de dossier.</p>
       </div>
       <div class="action-bar-actions">

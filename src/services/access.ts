@@ -4,7 +4,10 @@ export type AppRouteName =
   | 'dashboard'
   | 'clients'
   | 'dossiers'
+  | 'dossier-detail'
   | 'procedures'
+  | 'procedure-detail'
+  | 'audiences'
   | 'documents'
   | 'schema';
 
@@ -20,7 +23,10 @@ export const routeAccessMatrix: Record<AppRouteName, readonly SessionMetier[]> =
   dashboard: ['Associee', 'Collaborateur', 'Juriste', 'Assistante'],
   clients: ['Associee', 'Collaborateur', 'Juriste', 'Assistante'],
   dossiers: ['Associee', 'Collaborateur', 'Juriste', 'Assistante'],
+  'dossier-detail': ['Associee', 'Collaborateur', 'Juriste', 'Assistante'],
   procedures: ['Associee', 'Collaborateur', 'Juriste'],
+  'procedure-detail': ['Associee', 'Collaborateur', 'Juriste'],
+  audiences: ['Associee', 'Collaborateur', 'Juriste', 'Assistante'],
   documents: ['Associee', 'Collaborateur', 'Juriste', 'Assistante'],
   schema: ['Associee', 'Collaborateur'],
 };
@@ -34,7 +40,7 @@ const actionAccessMatrix: Record<AppAction, readonly SessionMetier[]> = {
   'procedures:plan': ['Associee', 'Collaborateur', 'Juriste'],
 };
 
-const routePriority: AppRouteName[] = ['dashboard', 'clients', 'dossiers', 'procedures', 'documents', 'schema'];
+const routePriority: AppRouteName[] = ['dashboard', 'clients', 'dossiers', 'procedures', 'audiences', 'documents', 'schema'];
 
 export function isRouteName(value: unknown): value is AppRouteName {
   return typeof value === 'string' && value in routeAccessMatrix;

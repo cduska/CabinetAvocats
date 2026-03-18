@@ -31,6 +31,7 @@ type UserFixture = readonly [
   lastName: string,
   metier: SessionMetier,
   agencyId: string,
+  email: string,
 ];
 
 type PersistedSessionState = Partial<SessionState>;
@@ -38,28 +39,25 @@ type PersistedSessionState = Partial<SessionState>;
 const agencies: SessionAgency[] = [
   { id: 'paris', label: 'Paris' },
   { id: 'lyon', label: 'Lyon' },
-  { id: 'bordeaux', label: 'Bordeaux' },
-  { id: 'lille', label: 'Lille' },
+  { id: 'nantes', label: 'Nantes' },
 ];
 
 const userFixtures: readonly UserFixture[] = [
-  ['u-claire-martin', 'Claire', 'Martin', 'Associee', 'paris'],
-  ['u-lina-perez', 'Lina', 'Perez', 'Juriste', 'paris'],
-  ['u-hugo-dubois', 'Hugo', 'Dubois', 'Collaborateur', 'lyon'],
-  ['u-noa-bertrand', 'Noa', 'Bertrand', 'Assistante', 'lyon'],
-  ['u-emma-ravier', 'Emma', 'Ravier', 'Associee', 'bordeaux'],
-  ['u-nora-roux', 'Nora', 'Roux', 'Assistante', 'bordeaux'],
-  ['u-yanis-girard', 'Yanis', 'Girard', 'Collaborateur', 'lille'],
-  ['u-jade-morel', 'Jade', 'Morel', 'Juriste', 'lille'],
+  ['u-claire-martin', 'Claire', 'Martin', 'Associee', 'paris', 'user1@cabinet.fr'],
+  ['u-hugo-dubois', 'Hugo', 'Dubois', 'Collaborateur', 'paris', 'user2@cabinet.fr'],
+  ['u-lina-perez', 'Lina', 'Perez', 'Juriste', 'lyon', 'user3@cabinet.fr'],
+  ['u-nora-roux', 'Nora', 'Roux', 'Collaborateur', 'lyon', 'user4@cabinet.fr'],
+  ['u-leo-bernard', 'Leo', 'Bernard', 'Collaborateur', 'nantes', 'user5@cabinet.fr'],
+  ['u-jade-faure', 'Jade', 'Faure', 'Assistante', 'nantes', 'user6@cabinet.fr'],
 ];
 
-const users: SessionUser[] = userFixtures.map(([id, firstName, lastName, metier, agencyId]) => ({
+const users: SessionUser[] = userFixtures.map(([id, firstName, lastName, metier, agencyId, email]) => ({
   id,
   firstName,
   lastName,
   metier,
   agencyId,
-  email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}@cabinet.local`,
+  email,
 }));
 
 const metiers: SessionMetier[] = [...SESSION_METIERS];
@@ -213,6 +211,7 @@ export function getSessionHeaders(): Record<string, string> {
     'X-Session-Agency': agency?.id ?? '',
     'X-Session-Metier': state.metier,
     'X-Session-User-Id': user?.id ?? '',
+    'X-Session-User-Email': user?.email ?? '',
     'X-Session-User': user ? `${user.firstName} ${user.lastName}` : '',
   };
 }
