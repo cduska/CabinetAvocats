@@ -2,30 +2,28 @@
 import { computed, reactive, ref, watch } from 'vue';
 import DataTable from '../components/ui/DataTable.vue';
 import DrawerPanel from '../components/ui/DrawerPanel.vue';
-import { documents } from '../data/mockData';
 import { useAccessControl } from '../services/access';
-import {
-  createDocument as createDocumentApi,
-  getDocuments,
-} from '../services/api';
+import { createDocument as createDocumentApi, getDocuments, getDossiers } from '../services/api';
 import { useSession } from '../services/session';
-import type { DocumentItem } from '../types/domain';
+import type { DocumentItem, Dossier } from '../types/domain';
 
-const rows = ref<DocumentItem[]>([...documents]);
+const rows = ref<DocumentItem[]>([]);
 const typeFilter = ref('all');
 const statusFilter = ref('all');
 const drawerOpen = ref(false);
-const dataSource = ref('Mock local');
+const dataSource = ref('');
 const { canPerformAction } = useAccessControl();
 const { state: sessionState } = useSession();
 const canCreateDocument = computed(() => canPerformAction('documents:create'));
 
 const form = reactive({
   type: 'Note interne',
-  dossierReference: '',
+  dossierReference: null as number | null,
   auteur: '',
   statut: 'Brouillon',
 });
+
+const dossiers = ref<Dossier[]>([]);
 
 const columns = [
   { key: 'id', label: 'ID', sortable: true, align: 'center' as const },
@@ -47,13 +45,18 @@ const filteredRows = computed(() =>
   }),
 );
 
+async function loadReferences() {
+  dossiers.value = await getDossiers();
+}
+
 async function loadDocumentsFromApi(): Promise<void> {
   try {
+    await loadReferences();
     const remoteRows = await getDocuments();
     rows.value = remoteRows;
     dataSource.value = 'PostgreSQL local';
   } catch {
-    dataSource.value = 'Mock local';
+    dataSource.value = 'Erreur API';
   }
 }
 
@@ -65,50 +68,28 @@ watch(
   { immediate: true },
 );
 
-function createDocumentLocally(): void {
-  if (!form.type || !form.auteur) {
-    return;
-  }
-
-  const nextId = rows.value.length > 0 ? Math.max(...rows.value.map((item) => item.id)) + 1 : 1;
-
-  rows.value.unshift({
-    id: nextId,
-    type: form.type,
-    dossierReference: form.dossierReference,
-    auteur: form.auteur,
-    dateCreation: new Date().toISOString().slice(0, 10),
-    statut: form.statut,
-  });
-}
-
 async function createDocument(): Promise<void> {
   if (!canCreateDocument.value) {
     return;
   }
-
   if (!form.type || !form.auteur) {
     return;
   }
-
   try {
     const created = await createDocumentApi({
       type: form.type,
-      dossierReference: form.dossierReference,
+      dossierReference: form.dossierReference ? String(form.dossierReference) : '',
       auteur: form.auteur,
       statut: form.statut,
     });
-
     rows.value.unshift(created);
     dataSource.value = 'PostgreSQL local';
   } catch {
-    createDocumentLocally();
-    dataSource.value = 'Mock local';
+    dataSource.value = 'Erreur API';
   }
-
   drawerOpen.value = false;
   form.type = 'Note interne';
-  form.dossierReference = '';
+  form.dossierReference = null;
   form.auteur = '';
   form.statut = 'Brouillon';
 }
@@ -137,7 +118,7 @@ function openDrawer(): void {
 
     <DataTable
       :columns="columns"
-      :rows="filteredRows as Record<string, unknown>[]"
+      :rows="filteredRows.map(row => ({ ...row }))"
       :searchable-fields="['type', 'dossierReference', 'auteur', 'statut']"
       empty-message="Aucun document pour les filtres actifs."
     >
@@ -185,8 +166,11 @@ function openDrawer(): void {
           <input v-model="form.type" class="input" required />
         </label>
         <label>
-          Dossier reference
-          <input v-model="form.dossierReference" class="input" placeholder="DOS-2026-001" />
+          Dossier
+          <select v-model="form.dossierReference" class="input">
+            <option value="" disabled>Choisir un dossier</option>
+            <option v-for="d in dossiers" :key="d.id" :value="d.id">{{ d.reference }}</option>
+          </select>
         </label>
         <label>
           Auteur

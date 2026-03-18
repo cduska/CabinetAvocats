@@ -2,11 +2,10 @@
 import { computed, reactive, ref, watch } from 'vue';
 import DrawerPanel from '../components/ui/DrawerPanel.vue';
 import DataTable from '../components/ui/DataTable.vue';
-import { clients } from '../data/mockData';
 import { useAccessControl } from '../services/access';
-import { createClient as createClientApi, getClients } from '../services/api';
+import { createClient, getAgences, getClients } from '../services/api';
 import { useSession } from '../services/session';
-import type { Client } from '../types/domain';
+import type { Client, Agence } from '../types/domain';
 
 const columns = [
   { key: 'id', label: 'ID', sortable: true, align: 'center' as const },
@@ -17,10 +16,10 @@ const columns = [
   { key: 'telephone', label: 'Telephone' },
 ];
 
-const rows = ref<Client[]>([...clients]);
+const rows = ref<Client[]>([]);
 const agenceFilter = ref('all');
 const drawerOpen = ref(false);
-const dataSource = ref('Mock local');
+const dataSource = ref('');
 const { canPerformAction } = useAccessControl();
 const { state: sessionState } = useSession();
 const canCreateClient = computed(() => canPerformAction('clients:create'));
@@ -30,11 +29,13 @@ const form = reactive({
   prenom: '',
   email: '',
   telephone: '',
-  agence: 'Paris',
+  agence: null as number | null,
   responsable: 'Claire Martin',
 });
 
-const agencies = computed(() => ['all', ...new Set(rows.value.map((item) => item.agence))]);
+const agences = ref<Agence[]>([]);
+
+const agencies = computed(() => ['all', ...agences.value.map(a => a.id)]);
 
 const filteredRows = computed(() => {
   const current = agenceFilter.value;
@@ -46,13 +47,18 @@ const filteredRows = computed(() => {
   }));
 });
 
+async function loadReferences() {
+  agences.value = await getAgences();
+}
+
 async function loadClientsFromApi(): Promise<void> {
   try {
+    await loadReferences();
     const remoteRows = await getClients();
     rows.value = remoteRows;
     dataSource.value = 'PostgreSQL local';
   } catch {
-    dataSource.value = 'Mock local';
+    dataSource.value = 'Erreur API';
   }
 }
 
@@ -69,26 +75,8 @@ function resetForm(): void {
   form.prenom = '';
   form.email = '';
   form.telephone = '';
-  form.agence = 'Paris';
+  form.agence = null;
   form.responsable = 'Claire Martin';
-}
-
-function addClientLocally(): void {
-  if (!form.nom || !form.prenom || !form.email) {
-    return;
-  }
-
-  const nextId = rows.value.length > 0 ? Math.max(...rows.value.map((item) => item.id)) + 1 : 1;
-
-  rows.value.unshift({
-    id: nextId,
-    nom: form.nom,
-    prenom: form.prenom,
-    email: form.email,
-    telephone: form.telephone,
-    agence: form.agence,
-    responsable: form.responsable,
-  });
 }
 
 async function addClient(): Promise<void> {
@@ -101,20 +89,19 @@ async function addClient(): Promise<void> {
   }
 
   try {
-    const created = await createClientApi({
+    const created = await createClient({
       nom: form.nom,
       prenom: form.prenom,
       email: form.email,
       telephone: form.telephone,
-      agence: form.agence,
+      agence: form.agence ? String(form.agence) : '',
       responsable: form.responsable,
     });
 
     rows.value.unshift(created);
     dataSource.value = 'PostgreSQL local';
   } catch {
-    addClientLocally();
-    dataSource.value = 'Mock local';
+    dataSource.value = 'Erreur API';
   }
 
   drawerOpen.value = false;
@@ -188,7 +175,10 @@ function openDrawer(): void {
         </label>
         <label>
           Agence
-          <input v-model="form.agence" class="input" />
+          <select v-model="form.agence" class="input" required>
+            <option value="" disabled>Choisir une agence</option>
+            <option v-for="a in agences" :key="a.id" :value="a.id">{{ a.nom }}</option>
+          </select>
         </label>
         <label>
           Responsable

@@ -210,7 +210,7 @@ export function getSessionHeaders(): Record<string, string> {
   const agency = currentAgency.value;
 
   return {
-    'X-Session-Agency': agency?.label ?? '',
+    'X-Session-Agency': agency?.id ?? '',
     'X-Session-Metier': state.metier,
     'X-Session-User-Id': user?.id ?? '',
     'X-Session-User': user ? `${user.firstName} ${user.lastName}` : '',

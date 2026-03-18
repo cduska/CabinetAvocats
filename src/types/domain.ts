@@ -68,3 +68,19 @@ export interface DashboardMetric {
   trend: string;
   trendUp: boolean;
 }
+
+// Types pour les listes de référence
+export interface StatutDossier {
+  id: number;
+  libelle: string;
+}
+
+export interface TypeDossier {
+  id: number;
+  libelle: string;
+}
+
+export interface Agence {
+  id: number;
+  nom: string;
+}

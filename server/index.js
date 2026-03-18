@@ -32,8 +32,31 @@ function getSessionContext(request) {
   };
 }
 
-function resolveAgenceFilter(requestedAgence, sessionContext) {
-  return toNullableText(requestedAgence) ?? sessionContext.agence;
+function isNumericIdentifier(value) {
+  return /^\d+$/.test(value);
+}
+
+async function resolveAgenceFilter(requestedAgence, sessionContext) {
+  const candidate = toNullableText(requestedAgence) ?? sessionContext.agence;
+  if (!candidate) {
+    return null;
+  }
+
+  // Resolve to a real agence id; if unknown, do not apply a restrictive filter.
+  const matched = await query(
+    `
+      SELECT id
+      FROM agence
+      WHERE id::text = $1
+        OR lower(nom) = lower($1)
+        OR lower(ville) = lower($1)
+      ORDER BY id
+      LIMIT 1
+    `,
+    [candidate],
+  );
+
+  return matched.rows[0] ? String(matched.rows[0].id) : null;
 }
 
 function splitFullName(value) {
@@ -49,10 +72,26 @@ function splitFullName(value) {
   };
 }
 
-async function findOrCreateAgenceId(agenceLabel) {
-  const normalized = toNullableText(agenceLabel);
+async function findOrCreateAgenceId(agenceValue) {
+  const normalized = toNullableText(agenceValue);
   if (!normalized) {
     return null;
+  }
+
+  if (isNumericIdentifier(normalized)) {
+    const byId = await query(
+      `
+        SELECT id
+        FROM agence
+        WHERE id = $1::int
+        LIMIT 1
+      `,
+      [normalized],
+    );
+
+    if (byId.rows[0]) {
+      return byId.rows[0].id;
+    }
   }
 
   const existing = await query(
@@ -96,6 +135,22 @@ async function findOrCreateLabelId(kind, label) {
 
   if (!lookup) {
     throw new Error(`Unsupported label lookup: ${kind}`);
+  }
+
+  if (isNumericIdentifier(normalized)) {
+    const byId = await query(
+      `
+        SELECT id
+        FROM ${lookup.tableName}
+        WHERE id = $1::int
+        LIMIT 1
+      `,
+      [normalized],
+    );
+
+    if (byId.rows[0]) {
+      return byId.rows[0].id;
+    }
   }
 
   const existing = await query(
@@ -149,6 +204,22 @@ async function findOrCreateClientId(fullName, agenceId) {
   const normalized = toNullableText(fullName);
   if (!normalized) {
     return null;
+  }
+
+  if (isNumericIdentifier(normalized)) {
+    const byId = await query(
+      `
+        SELECT id
+        FROM client
+        WHERE id = $1::int
+        LIMIT 1
+      `,
+      [normalized],
+    );
+
+    if (byId.rows[0]) {
+      return byId.rows[0].id;
+    }
   }
 
   const existing = await query(
@@ -207,9 +278,13 @@ async function getDossierById(dossierId) {
       SELECT
         d.id,
         COALESCE(d.reference, '') AS reference,
+        d.id_client AS "clientId",
         COALESCE(trim(concat_ws(' ', c.prenom, c.nom)), 'Non renseigne') AS client,
+        d.id_type_dossier AS "typeId",
         COALESCE(td.libelle, 'Non renseigne') AS type,
+        d.id_statut_dossier AS "statutId",
         COALESCE(sd.libelle, 'Non renseigne') AS statut,
+        d.id_agence AS "agenceId",
         COALESCE(a.nom, a.ville, 'Non renseignee') AS agence,
         COALESCE(to_char(d.date_ouverture, 'YYYY-MM-DD'), '') AS ouverture,
         COALESCE(to_char(d.date_cloture, 'YYYY-MM-DD'), '') AS echeance,
@@ -269,10 +344,58 @@ app.get('/api/health', async (request, response) => {
   }
 });
 
+app.get('/api/agence', async (request, response, next) => {
+  try {
+    const result = await query(
+      `
+        SELECT id, nom
+        FROM agence
+        ORDER BY nom ASC, id ASC
+      `,
+    );
+
+    response.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/type_dossier', async (request, response, next) => {
+  try {
+    const result = await query(
+      `
+        SELECT id, libelle
+        FROM type_dossier
+        ORDER BY id ASC
+      `,
+    );
+
+    response.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/statut_dossier', async (request, response, next) => {
+  try {
+    const result = await query(
+      `
+        SELECT id, libelle
+        FROM statut_dossier
+        ORDER BY id ASC
+      `,
+    );
+
+    response.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/dashboard', async (request, response, next) => {
   try {
     const sessionContext = getSessionContext(request);
-    const agenceFilter = resolveAgenceFilter(request.query.agence, sessionContext);
+    const agenceFilter = await resolveAgenceFilter(request.query.agence, sessionContext);
 
     const [activeDossiers, delayedProcedures, upcomingHearings, pendingDocuments] = await Promise.all([
       query(
@@ -282,7 +405,7 @@ app.get('/api/dashboard', async (request, response, next) => {
           LEFT JOIN statut_dossier sd ON sd.id = d.id_statut_dossier
           LEFT JOIN agence a ON a.id = d.id_agence
           WHERE COALESCE(lower(sd.libelle), '') <> 'cloture'
-            AND ($1::text IS NULL OR a.nom = $1 OR a.ville = $1)
+            AND ($1::text IS NULL OR a.id::text = $1 OR lower(a.nom) = lower($1) OR lower(a.ville) = lower($1))
         `,
         [agenceFilter],
       ),
@@ -295,7 +418,7 @@ app.get('/api/dashboard', async (request, response, next) => {
           WHERE p.date_fin IS NULL
             AND p.date_debut IS NOT NULL
             AND p.date_debut < CURRENT_DATE - INTERVAL '14 days'
-            AND ($1::text IS NULL OR a.nom = $1 OR a.ville = $1)
+            AND ($1::text IS NULL OR a.id::text = $1 OR lower(a.nom) = lower($1) OR lower(a.ville) = lower($1))
         `,
         [agenceFilter],
       ),
@@ -308,7 +431,7 @@ app.get('/api/dashboard', async (request, response, next) => {
           LEFT JOIN dossier d ON d.id = p.id_dossier
           LEFT JOIN agence a ON a.id = d.id_agence
           WHERE aud.date_audience BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'
-            AND ($1::text IS NULL OR a.nom = $1 OR a.ville = $1)
+            AND ($1::text IS NULL OR a.id::text = $1 OR lower(a.nom) = lower($1) OR lower(a.ville) = lower($1))
         `,
         [agenceFilter],
       ),
@@ -327,7 +450,7 @@ app.get('/api/dashboard', async (request, response, next) => {
             doc.date_creation IS NULL
             OR doc.date_creation >= NOW() - INTERVAL '30 days'
           )
-            AND ($1::text IS NULL OR a.nom = $1 OR a.ville = $1)
+            AND ($1::text IS NULL OR a.id::text = $1 OR lower(a.nom) = lower($1) OR lower(a.ville) = lower($1))
         `,
         [agenceFilter],
       ),
@@ -368,7 +491,7 @@ app.get('/api/clients', async (request, response, next) => {
   try {
     const sessionContext = getSessionContext(request);
     const searchPattern = toSearchPattern(request.query.q);
-    const agenceFilter = resolveAgenceFilter(request.query.agence, sessionContext);
+    const agenceFilter = await resolveAgenceFilter(request.query.agence, sessionContext);
 
     const result = await query(
       `
@@ -389,8 +512,9 @@ app.get('/api/clients', async (request, response, next) => {
           OR c.email ILIKE $1
           OR c.telephone ILIKE $1)
           AND ($2::text IS NULL
-            OR a.nom = $2
-            OR a.ville = $2)
+            OR a.id::text = $2
+            OR lower(a.nom) = lower($2)
+            OR lower(a.ville) = lower($2))
         ORDER BY c.id DESC
       `,
       [searchPattern, agenceFilter],
@@ -436,21 +560,44 @@ app.post('/api/clients', async (request, response, next) => {
   }
 });
 
+
+app.get('/api/dossiers/:id', async (request, response, next) => {
+  try {
+    const dossierId = Number(request.params.id);
+    if (!Number.isFinite(dossierId)) {
+      response.status(400).json({ message: 'ID dossier invalide.' });
+      return;
+    }
+    const row = await getDossierById(dossierId);
+    if (!row) {
+      response.status(404).json({ message: 'Dossier introuvable.' });
+      return;
+    }
+    response.json(row);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/dossiers', async (request, response, next) => {
   try {
     const sessionContext = getSessionContext(request);
     const searchPattern = toSearchPattern(request.query.q);
     const statutFilter = toNullableText(request.query.statut);
-    const agenceFilter = resolveAgenceFilter(request.query.agence, sessionContext);
+    const agenceFilter = await resolveAgenceFilter(request.query.agence, sessionContext);
 
     const result = await query(
       `
         SELECT
           d.id,
           COALESCE(d.reference, '') AS reference,
+          d.id_client AS "clientId",
           COALESCE(trim(concat_ws(' ', c.prenom, c.nom)), 'Non renseigne') AS client,
+          d.id_type_dossier AS "typeId",
           COALESCE(td.libelle, 'Non renseigne') AS type,
+          d.id_statut_dossier AS "statutId",
           COALESCE(sd.libelle, 'Non renseigne') AS statut,
+          d.id_agence AS "agenceId",
           COALESCE(a.nom, a.ville, 'Non renseignee') AS agence,
           COALESCE(to_char(d.date_ouverture, 'YYYY-MM-DD'), '') AS ouverture,
           COALESCE(to_char(d.date_cloture, 'YYYY-MM-DD'), '') AS echeance,
@@ -473,7 +620,7 @@ app.get('/api/dossiers', async (request, response, next) => {
           OR c.prenom ILIKE $1
           OR td.libelle ILIKE $1)
           AND ($2::text IS NULL OR sd.libelle = $2)
-          AND ($3::text IS NULL OR a.nom = $3 OR a.ville = $3)
+          AND ($3::text IS NULL OR a.id::text = $3 OR lower(a.nom) = lower($3) OR lower(a.ville) = lower($3))
         ORDER BY d.id DESC
       `,
       [searchPattern, statutFilter, agenceFilter],
@@ -489,16 +636,16 @@ app.post('/api/dossiers', async (request, response, next) => {
   try {
     const sessionContext = getSessionContext(request);
     const reference = toNullableText(request.body.reference);
-    const clientName = toNullableText(request.body.client);
+    const clientValue = toNullableText(request.body.client);
 
-    if (!reference || !clientName) {
+    if (!reference || !clientValue) {
       response.status(400).json({ message: 'reference et client sont obligatoires.' });
       return;
     }
 
     const agenceLabel = toNullableText(request.body.agence) ?? sessionContext.agence;
     const agenceId = await findOrCreateAgenceId(agenceLabel);
-    const clientId = await findOrCreateClientId(clientName, agenceId);
+    const clientId = await findOrCreateClientId(clientValue, agenceId);
     const typeId = await findOrCreateLabelId('type_dossier', request.body.type ?? 'Contentieux');
     const statutId = await findOrCreateLabelId('statut_dossier', request.body.statut ?? 'A valider');
 
@@ -543,7 +690,7 @@ app.post('/api/dossiers', async (request, response, next) => {
 app.get('/api/procedures', async (request, response, next) => {
   try {
     const sessionContext = getSessionContext(request);
-    const agenceFilter = resolveAgenceFilter(request.query.agence, sessionContext);
+    const agenceFilter = await resolveAgenceFilter(request.query.agence, sessionContext);
 
     const result = await query(
       `
@@ -568,7 +715,7 @@ app.get('/api/procedures', async (request, response, next) => {
           ORDER BY ij.id DESC
           LIMIT 1
         ) AS latest_instance ON true
-        WHERE ($1::text IS NULL OR a.nom = $1 OR a.ville = $1)
+        WHERE ($1::text IS NULL OR a.id::text = $1 OR lower(a.nom) = lower($1) OR lower(a.ville) = lower($1))
         ORDER BY p.id DESC
       `,
       [agenceFilter],
@@ -580,10 +727,57 @@ app.get('/api/procedures', async (request, response, next) => {
   }
 });
 
+app.get('/api/procedures/:id', async (request, response, next) => {
+  try {
+    const procedureId = Number(request.params.id);
+    if (!Number.isFinite(procedureId)) {
+      response.status(400).json({ message: 'ID procedure invalide.' });
+      return;
+    }
+
+    const result = await query(
+      `
+        SELECT
+          p.id,
+          COALESCE(d.reference, '') AS "dossierReference",
+          COALESCE(tp.libelle, 'Non renseigne') AS type,
+          COALESCE(sp.libelle, 'Non renseigne') AS statut,
+          COALESCE(latest_instance.juridiction, 'Instance') AS juridiction,
+          COALESCE(to_char(p.date_debut, 'YYYY-MM-DD'), '') AS debut,
+          COALESCE(to_char(p.date_fin, 'YYYY-MM-DD'), '') AS fin
+        FROM "procedure" p
+        LEFT JOIN dossier d ON d.id = p.id_dossier
+        LEFT JOIN type_procedure tp ON tp.id = p.id_type_procedure
+        LEFT JOIN statut_procedure sp ON sp.id = p.id_statut_procedure
+        LEFT JOIN LATERAL (
+          SELECT COALESCE(ti.libelle, 'Instance') AS juridiction
+          FROM instance_juridique ij
+          LEFT JOIN type_instance ti ON ti.id = ij.id_type_instance
+          WHERE ij.id_procedure = p.id
+          ORDER BY ij.id DESC
+          LIMIT 1
+        ) AS latest_instance ON true
+        WHERE p.id = $1
+      `,
+      [procedureId],
+    );
+
+    const row = result.rows[0];
+    if (!row) {
+      response.status(404).json({ message: 'Procedure introuvable.' });
+      return;
+    }
+
+    response.json(row);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/documents', async (request, response, next) => {
   try {
     const sessionContext = getSessionContext(request);
-    const agenceFilter = resolveAgenceFilter(request.query.agence, sessionContext);
+    const agenceFilter = await resolveAgenceFilter(request.query.agence, sessionContext);
 
     const result = await query(
       `
@@ -608,7 +802,7 @@ app.get('/api/documents', async (request, response, next) => {
         LEFT JOIN dossier instance_dossier ON instance_dossier.id = instance_procedure.id_dossier
         LEFT JOIN agence a ON a.id = COALESCE(direct_dossier.id_agence, procedure_dossier.id_agence, instance_dossier.id_agence)
         LEFT JOIN collaborateur c ON c.id = doc.auteur
-        WHERE ($1::text IS NULL OR a.nom = $1 OR a.ville = $1)
+        WHERE ($1::text IS NULL OR a.id::text = $1 OR lower(a.nom) = lower($1) OR lower(a.ville) = lower($1))
         ORDER BY doc.id DESC
       `,
       [agenceFilter],
@@ -624,21 +818,22 @@ app.post('/api/documents', async (request, response, next) => {
   try {
     const sessionContext = getSessionContext(request);
     const typeId = await findOrCreateLabelId('type_document', request.body.type ?? 'Document');
-    const dossierReference = toNullableText(request.body.dossierReference);
+    const dossierIdentifier = toNullableText(request.body.dossierReference);
     const auteurName = toNullableText(request.body.auteur) ?? sessionContext.user;
     const auteurId = await findCollaborateurId(auteurName);
 
     let dossierId = null;
-    if (dossierReference) {
+    if (dossierIdentifier) {
       const dossier = await query(
         `
           SELECT id
           FROM dossier
-          WHERE reference = $1
+          WHERE id::text = $1
+             OR reference = $1
           ORDER BY id DESC
           LIMIT 1
         `,
-        [dossierReference],
+        [dossierIdentifier],
       );
       dossierId = dossier.rows[0]?.id ?? null;
     }
@@ -682,6 +877,7 @@ app.use((error, request, response, next) => {
   response.status(500).json({ message: error.message });
 });
 
+// --- Démarrage du serveur Express ---
 app.listen(apiPort, async () => {
   try {
     await testConnection();

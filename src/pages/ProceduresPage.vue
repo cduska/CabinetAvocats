@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import DataTable from '../components/ui/DataTable.vue';
-import { procedures } from '../data/mockData';
 import { useAccessControl } from '../services/access';
-import { getProcedures } from '../services/api';
+import { getDossiers, getProcedures } from '../services/api';
 import { useSession } from '../services/session';
-import type { ProcedureItem } from '../types/domain';
+import type { ProcedureItem, Dossier } from '../types/domain';
 
-const rows = ref<ProcedureItem[]>([...procedures]);
+const rows = ref<ProcedureItem[]>([]);
+const dossiers = ref<Dossier[]>([]);
 const statusFilter = ref('all');
-const dataSource = ref('Mock local');
+const dataSource = ref('');
 const { canPerformAction } = useAccessControl();
 const { state: sessionState } = useSession();
 const canPlanProcedure = computed(() => canPerformAction('procedures:plan'));
@@ -29,13 +29,18 @@ const filteredRows = computed(() =>
   rows.value.filter((item) => statusFilter.value === 'all' || item.statut === statusFilter.value),
 );
 
+async function loadReferences() {
+  dossiers.value = await getDossiers();
+}
+
 async function loadProceduresFromApi(): Promise<void> {
   try {
+    await loadReferences();
     const remoteRows = await getProcedures();
     rows.value = remoteRows;
     dataSource.value = 'PostgreSQL local';
   } catch {
-    dataSource.value = 'Mock local';
+    dataSource.value = 'Erreur API';
   }
 }
 

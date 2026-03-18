@@ -159,10 +159,10 @@ function alignmentClass(align: TableColumn['align']): string {
           <tr v-if="paginatedRows.length === 0">
             <td :colspan="columns.length" class="empty-row">{{ emptyMessage }}</td>
           </tr>
-          <tr v-for="(row, rowIndex) in paginatedRows" :key="String(row[rowKey] ?? rowIndex)">
-              <td
-                v-for="column in columns"
-                :key="`${String(row[rowKey] ?? `row-${rowIndex}`)}-${column.key}`"
+          <tr v-for="(row, rowIndex) in paginatedRows" :key="String(row[rowKey] ?? rowIndex)" class="data-table-row" @click="$emit('row-click', row)" style="cursor:pointer">
+            <td
+              v-for="column in columns"
+              :key="`${String(row[rowKey] ?? `row-${rowIndex}`)}-${column.key}`"
               :class="alignmentClass(column.align)"
             >
               <slot

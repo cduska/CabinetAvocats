@@ -2,18 +2,17 @@
 import { computed, reactive, ref, watch } from 'vue';
 import DataTable from '../components/ui/DataTable.vue';
 import DrawerPanel from '../components/ui/DrawerPanel.vue';
-import { dossiers } from '../data/mockData';
 import { useAccessControl } from '../services/access';
-import { createDossier as createDossierApi, getDossiers } from '../services/api';
+import { createDossier as createDossierApi, getAgences, getClients, getDossiers, getStatutsDossier, getTypesDossier } from '../services/api';
 import { useSession } from '../services/session';
-import type { Dossier } from '../types/domain';
+import type { Dossier, Client, StatutDossier, TypeDossier, Agence } from '../types/domain';
 
-const rows = ref<Dossier[]>([...dossiers]);
+const rows = ref<Dossier[]>([]);
 const drawerOpen = ref(false);
 const step = ref(1);
 const statusFilter = ref('all');
 const agencyFilter = ref('all');
-const dataSource = ref('Mock local');
+const dataSource = ref('');
 const { canPerformAction } = useAccessControl();
 const { state: sessionState } = useSession();
 const canCreateDossier = computed(() => canPerformAction('dossiers:create'));
@@ -30,14 +29,19 @@ const columns = [
 
 const form = reactive({
   reference: '',
-  client: '',
-  type: 'Contentieux',
-  statut: 'A valider',
-  agence: 'Paris',
+  client: null as number | null,
+  type: null as number | null,
+  statut: null as number | null,
+  agence: null as number | null,
   ouverture: new Date().toISOString().slice(0, 10),
   echeance: '',
   montant: 0,
 });
+
+const statuts = ref<StatutDossier[]>([]);
+const types = ref<TypeDossier[]>([]);
+const agences = ref<Agence[]>([]);
+const clients = ref<Client[]>([]);
 
 const agencies = computed(() => ['all', ...new Set(rows.value.map((item) => item.agence))]);
 const statuses = computed(() => ['all', ...new Set(rows.value.map((item) => item.statut))]);
@@ -52,13 +56,25 @@ const filteredRows = computed(() =>
 
 const canContinueStepOne = computed(() => Boolean(form.reference && form.client && form.type));
 
+
+async function loadReferences() {
+  [statuts.value, types.value, agences.value, clients.value] = await Promise.all([
+    getStatutsDossier(),
+    getTypesDossier(),
+    getAgences(),
+    getClients(),
+  ]);
+}
+
 async function loadDossiersFromApi(): Promise<void> {
   try {
+    await loadReferences();
     const remoteRows = await getDossiers();
     rows.value = remoteRows;
     dataSource.value = 'PostgreSQL local';
   } catch {
-    dataSource.value = 'Mock local';
+    rows.value = [];
+    dataSource.value = 'Erreur API';
   }
 }
 
@@ -72,10 +88,10 @@ watch(
 
 function resetForm(): void {
   form.reference = '';
-  form.client = '';
-  form.type = 'Contentieux';
-  form.statut = 'A valider';
-  form.agence = 'Paris';
+  form.client = null;
+  form.type = null;
+  form.statut = null;
+  form.agence = null;
   form.ouverture = new Date().toISOString().slice(0, 10);
   form.echeance = '';
   form.montant = 0;
@@ -110,26 +126,6 @@ function previousStep(): void {
   step.value = 1;
 }
 
-function createDossierLocally(): void {
-  if (!form.reference || !form.client || !form.echeance) {
-    return;
-  }
-
-  const nextId = rows.value.length > 0 ? Math.max(...rows.value.map((item) => item.id)) + 1 : 1;
-
-  rows.value.unshift({
-    id: nextId,
-    reference: form.reference,
-    client: form.client,
-    type: form.type,
-    statut: form.statut,
-    agence: form.agence,
-    ouverture: form.ouverture,
-    echeance: form.echeance,
-    montant: form.montant,
-  });
-}
-
 async function createDossier(): Promise<void> {
   if (!canCreateDossier.value) {
     return;
@@ -142,10 +138,10 @@ async function createDossier(): Promise<void> {
   try {
     const created = await createDossierApi({
       reference: form.reference,
-      client: form.client,
-      type: form.type,
-      statut: form.statut,
-      agence: form.agence,
+      client: String(form.client),
+      type: String(form.type),
+      statut: String(form.statut),
+      agence: String(form.agence),
       ouverture: form.ouverture,
       echeance: form.echeance,
       montant: form.montant,
@@ -154,8 +150,7 @@ async function createDossier(): Promise<void> {
     rows.value.unshift(created);
     dataSource.value = 'PostgreSQL local';
   } catch {
-    createDossierLocally();
-    dataSource.value = 'Mock local';
+    dataSource.value = 'Erreur API';
   }
 
   drawerOpen.value = false;
@@ -179,9 +174,10 @@ async function createDossier(): Promise<void> {
 
     <DataTable
       :columns="columns"
-      :rows="filteredRows as Record<string, unknown>[]"
+      :rows="filteredRows.map(row => ({ ...row }))"
       :searchable-fields="['reference', 'client', 'type', 'statut', 'agence']"
       empty-message="Aucun dossier pour les filtres en cours."
+      @row-click="(row: Dossier) => $router.push({ name: 'dossier-detail', params: { id: row.id } })"
     >
       <template #filters>
         <label>
@@ -238,22 +234,34 @@ async function createDossier(): Promise<void> {
           </label>
           <label>
             Client principal
-            <input v-model="form.client" class="input" placeholder="Prenom Nom" required />
+            <select v-model="form.client" class="input" required>
+              <option value="" disabled>Choisir un client</option>
+              <option v-for="c in clients" :key="c.id" :value="c.id">{{ c.nom }} {{ c.prenom }}</option>
+            </select>
           </label>
           <label>
             Type de dossier
-            <input v-model="form.type" class="input" />
+            <select v-model="form.type" class="input" required>
+              <option value="" disabled>Choisir un type</option>
+              <option v-for="t in types" :key="t.id" :value="t.id">{{ t.libelle }}</option>
+            </select>
           </label>
         </template>
 
         <template v-else>
           <label>
             Statut
-            <input v-model="form.statut" class="input" />
+            <select v-model="form.statut" class="input" required>
+              <option value="" disabled>Choisir un statut</option>
+              <option v-for="s in statuts" :key="s.id" :value="s.id">{{ s.libelle }}</option>
+            </select>
           </label>
           <label>
             Agence
-            <input v-model="form.agence" class="input" />
+            <select v-model="form.agence" class="input" required>
+              <option value="" disabled>Choisir une agence</option>
+              <option v-for="a in agences" :key="a.id" :value="a.id">{{ a.nom }}</option>
+            </select>
           </label>
           <label>
             Date echeance

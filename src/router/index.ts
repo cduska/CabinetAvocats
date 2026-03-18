@@ -46,6 +46,15 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: '/dossiers/:id',
+        name: 'dossier-detail',
+        component: () => import('../pages/DossierDetailPage.vue'),
+        meta: {
+          title: 'Détail Dossier',
+          allowedMetiers: routeAccessMatrix.dossiers,
+        },
+      },
+      {
         path: '/procedures',
         name: 'procedures',
         component: ProceduresPage,

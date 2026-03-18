@@ -1,19 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import MetricCard from '../components/ui/MetricCard.vue';
-import { dashboardMetrics, documents, dossiers } from '../data/mockData';
 import { useAccessControl } from '../services/access';
 import { useSession } from '../services/session';
-import {
-  getDashboardMetrics,
-  getDocuments,
-  getDossiers,
-} from '../services/api';
+import { getDashboardMetrics, getDocuments, getDossiers } from '../services/api';
+import type { DashboardMetric, Dossier, DocumentItem } from '../types/domain';
 
-const dataSource = ref('Mock local');
-const metrics = ref([...dashboardMetrics]);
-const dossierRows = ref([...dossiers]);
-const documentRows = ref([...documents]);
+const dataSource = ref('');
+const metrics = ref<DashboardMetric[]>([]);
+const dossierRows = ref<Dossier[]>([]);
+const documentRows = ref<DocumentItem[]>([]);
 const { canPerformAction } = useAccessControl();
 const { state: sessionState } = useSession();
 const canCreateDossier = computed(() => canPerformAction('dashboard:create-dossier'));
@@ -26,13 +22,12 @@ async function hydrateDashboard() {
       getDossiers(),
       getDocuments(),
     ]);
-
     metrics.value = remoteMetrics;
     dossierRows.value = remoteDossiers;
     documentRows.value = remoteDocuments;
     dataSource.value = 'PostgreSQL local';
   } catch {
-    dataSource.value = 'Mock local';
+    dataSource.value = 'Erreur API';
   }
 }
 
