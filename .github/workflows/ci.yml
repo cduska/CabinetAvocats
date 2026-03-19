@@ -200,9 +200,37 @@ jobs:
       - name: Skip Fly deploy when token is missing
         if: env.FLY_API_TOKEN == ''
         run: echo "FLY_API_TOKEN not configured; skipping Fly deployment."
+      - name: Resolve Fly app name
+        if: env.FLY_API_TOKEN != ''
+        id: fly-app
+        shell: bash
+        run: |
+          app_name="$(sed -n 's/^app[[:space:]]*=[[:space:]]*"\([^"]\+\)".*/\1/p' fly.toml | head -n 1)"
+
+          if [ -z "${app_name}" ]; then
+            echo "Unable to resolve Fly app name from fly.toml."
+            exit 1
+          fi
+
+          echo "app_name=${app_name}" >> "$GITHUB_OUTPUT"
+          echo "Using Fly app: ${app_name}"
+      - name: Ensure Fly app exists
+        if: env.FLY_API_TOKEN != ''
+        shell: bash
+        run: |
+          app_name="${{ steps.fly-app.outputs.app_name }}"
+
+          if flyctl status --app "${app_name}" > /dev/null 2>&1; then
+            echo "Fly app ${app_name} already exists."
+            exit 0
+          fi
+
+          echo "Fly app ${app_name} not found. Creating it now..."
+          flyctl apps create "${app_name}"
+          flyctl status --app "${app_name}"
       - name: Deploy to Fly.io
         if: env.FLY_API_TOKEN != ''
-        run: flyctl deploy --remote-only --config fly.toml
+        run: flyctl deploy --remote-only --config fly.toml --app "${{ steps.fly-app.outputs.app_name }}"
 
   notify:
     needs: [build, sonar, cypress-run, publish-image, deploy_fly]
