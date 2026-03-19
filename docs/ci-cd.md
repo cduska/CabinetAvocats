@@ -90,6 +90,7 @@ push / pull_request → main
 - Vérification du secret `FLY_API_TOKEN`
 - Résolution du nom d'app Fly via la clé `app` de `fly.toml`
 - Si l'app n'existe pas, création automatique via `flyctl apps create <app_name>`
+- Si la création échoue faute de facturation Fly active, le job signale un avertissement et ignore le déploiement sans casser la CI
 - Déploiement de l'image avec `flyctl deploy --remote-only --config fly.toml --app <app_name>`
 - Le conteneur Node sert à la fois l'API Express et le front `dist/`
 

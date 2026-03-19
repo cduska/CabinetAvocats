@@ -216,20 +216,41 @@ jobs:
           echo "Using Fly app: ${app_name}"
       - name: Ensure Fly app exists
         if: env.FLY_API_TOKEN != ''
+        id: fly-ready
         shell: bash
         run: |
           app_name="${{ steps.fly-app.outputs.app_name }}"
 
           if flyctl status --app "${app_name}" > /dev/null 2>&1; then
             echo "Fly app ${app_name} already exists."
+            echo "deploy_enabled=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           echo "Fly app ${app_name} not found. Creating it now..."
-          flyctl apps create "${app_name}"
-          flyctl status --app "${app_name}"
+          set +e
+          create_output="$(flyctl apps create "${app_name}" 2>&1)"
+          create_code=$?
+          set -e
+
+          echo "${create_output}"
+
+          if [ ${create_code} -eq 0 ]; then
+            flyctl status --app "${app_name}"
+            echo "deploy_enabled=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if echo "${create_output}" | grep -qi "payment information"; then
+            echo "Fly billing is not configured yet; skipping deploy_fly without failing CI."
+            echo "deploy_enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Unable to create Fly app ${app_name}."
+          exit ${create_code}
       - name: Deploy to Fly.io
-        if: env.FLY_API_TOKEN != ''
+        if: env.FLY_API_TOKEN != '' && steps.fly-ready.outputs.deploy_enabled == 'true'
         run: flyctl deploy --remote-only --config fly.toml --app "${{ steps.fly-app.outputs.app_name }}"
 
   notify:
