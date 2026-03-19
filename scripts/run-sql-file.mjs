@@ -20,20 +20,29 @@ const port = Number(process.env.PGPORT || 5432);
 const user = String(process.env.PGUSER || 'postgres');
 const password = String(process.env.PGPASSWORD ?? 'postgres');
 const database = String(process.env.PGDATABASE || 'postgres');
+const connectionString = process.env.DATABASE_URL?.trim() || '';
 
 const { Client } = pg;
-const client = new Client({
-  host,
-  port,
-  user,
-  password,
-  database,
-});
+const client = new Client(
+  connectionString
+    ? {
+        connectionString,
+      }
+    : {
+        host,
+        port,
+        user,
+        password,
+        database,
+      },
+);
+
+const target = connectionString ? 'DATABASE_URL' : `${database}@${host}:${port}`;
 
 try {
   await client.connect();
   await client.query(sql);
-  console.log(`[db-seed] Applied ${path.basename(sqlPath)} on ${database}@${host}:${port}`);
+  console.log(`[db-seed] Applied ${path.basename(sqlPath)} on ${target}`);
 } catch (error) {
   console.error(`[db-seed] Failed for ${path.basename(sqlPath)}: ${error.message}`);
   process.exitCode = 1;

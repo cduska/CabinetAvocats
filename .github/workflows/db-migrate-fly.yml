@@ -1,0 +1,81 @@
+name: Fly DB Maintenance
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: "Fly app name"
+        required: true
+        default: "cabinet-avocats-prod"
+        type: string
+      apply_schema:
+        description: "Apply schema_complet.sql (one-time operation)"
+        required: true
+        default: false
+        type: boolean
+      seed_file:
+        description: "Optional seed file"
+        required: true
+        default: "none"
+        type: choice
+        options:
+          - none
+          - peuplement_minimal.sql
+          - peuplement_rapide.sql
+          - peuplement_massif.sql
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fly-db-${{ inputs.app_name }}
+  cancel-in-progress: false
+
+jobs:
+  db_maintenance:
+    name: Run SQL maintenance on Fly app
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      FLY_APP_NAME: ${{ inputs.app_name }}
+      SEED_FILE: ${{ inputs.seed_file }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Validate token and inputs
+        shell: bash
+        run: |
+          if [ -z "${FLY_API_TOKEN}" ]; then
+            echo "Missing required secret: FLY_API_TOKEN"
+            exit 1
+          fi
+
+          if ! [[ "${FLY_APP_NAME}" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+            echo "Invalid app_name: ${FLY_APP_NAME}"
+            exit 1
+          fi
+
+          case "${SEED_FILE}" in
+            none|peuplement_minimal.sql|peuplement_rapide.sql|peuplement_massif.sql)
+              ;;
+            *)
+              echo "Invalid seed_file: ${SEED_FILE}"
+              exit 1
+              ;;
+          esac
+
+      - name: Show target app status
+        run: flyctl status --app "${FLY_APP_NAME}"
+
+      - name: Apply schema (schema_complet.sql)
+        if: ${{ inputs.apply_schema }}
+        run: flyctl ssh console --app "${FLY_APP_NAME}" -C "node scripts/run-sql-file.mjs schema_complet.sql"
+
+      - name: Apply seed file
+        if: ${{ inputs.seed_file != 'none' }}
+        run: flyctl ssh console --app "${FLY_APP_NAME}" -C "node scripts/run-sql-file.mjs ${SEED_FILE}"

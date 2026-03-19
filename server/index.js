@@ -1,14 +1,29 @@
 import express from 'express';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { query, testConnection } from './db.js';
 
 dotenv.config();
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const distPath = path.resolve(__dirname, '../dist');
+
 const app = express();
 app.disable('x-powered-by');
-const apiPort = Number(process.env.API_PORT || 8787);
+const apiPort = Number(process.env.PORT || process.env.API_PORT || 8787);
 
 app.use(express.json({ limit: '1mb' }));
+
+app.get('/healthz', async (request, response) => {
+  try {
+    await testConnection();
+    response.status(200).json({ ok: true });
+  } catch (error) {
+    response.status(503).json({ ok: false, message: error.message });
+  }
+});
 
 function toNullableText(value) {
   if (value === undefined || value === null) {
@@ -1509,6 +1524,11 @@ app.get('/api/schema/tables', async (request, response, next) => {
   }
 });
 
+app.use(express.static(distPath));
+app.get(/^(?!\/api(?:\/|$)).*/, (request, response) => {
+  response.sendFile(path.join(distPath, 'index.html'));
+});
+
 app.use((error, request, response, next) => {
   console.error('[api] Error:', error.message);
   response.status(500).json({ message: error.message });
@@ -1518,8 +1538,8 @@ app.use((error, request, response, next) => {
 app.listen(apiPort, async () => {
   try {
     await testConnection();
-    console.log(`[api] Running on http://127.0.0.1:${apiPort} (PostgreSQL connected)`);
+    console.log(`[api] Running on port ${apiPort} (PostgreSQL connected)`);
   } catch (error) {
-    console.warn(`[api] Running on http://127.0.0.1:${apiPort} (PostgreSQL unavailable: ${error.message})`);
+    console.warn(`[api] Running on port ${apiPort} (PostgreSQL unavailable: ${error.message})`);
   }
 });

@@ -26,8 +26,8 @@ push / pull_request → main
      ┌─────┴──────┐
      ▼            ▼
 ┌──────────────┐  ┌────────┐
-│publish-image │  │ deploy │
-│  (GHCR)      │  │(Pages) │
+│publish-image │  │deploy_fly│
+│  (GHCR)      │  │ (Fly.io) │
 └──────────────┘  └────────┘
            │
      ┌─────▼─────┐
@@ -45,10 +45,10 @@ push / pull_request → main
 | `sonar` | `build` | push + PR | Analyse qualité SonarCloud + Quality Gate |
 | `cypress-run` | `build` | push + PR | Tests E2E Cypress Cloud (Chrome, record, parallel x2) |
 | `publish-image` | `build`, `sonar`, `cypress-run` | push main uniquement | Build + push image Docker vers GHCR |
-| `deploy` | `build`, `sonar`, `cypress-run` | push main uniquement | Build Vite + déploiement GitHub Pages |
+| `deploy_fly` | `build`, `sonar`, `cypress-run` | push main uniquement | Déploiement applicatif sur Fly.io (`flyctl deploy`) |
 | `notify` | tous les jobs ci-dessus | toujours (succès ou échec) | Envoi email de compte rendu |
 
-> `publish-image` et `deploy` sont bloqués si `build` ou `cypress-run` échouent. `sonar` peut être ignoré (skipped) si `SONAR_TOKEN` n'est pas configuré — dans ce cas les deux jobs déploient quand même.
+> `publish-image` et `deploy_fly` sont bloqués si `build` ou `cypress-run` échouent. `sonar` peut être ignoré (skipped) si `SONAR_TOKEN` n'est pas configuré — dans ce cas les deux jobs déploient quand même.
 
 ---
 
@@ -83,13 +83,22 @@ push / pull_request → main
 - Login sur `ghcr.io`
 - Tag + push `ghcr.io/cduska/cabinet-avocats:latest`
 
-### `deploy`
-- `npm ci` + `npm run build`
-- Copie de `dist/index.html` vers `dist/404.html` pour le fallback SPA
-- Upload de l'artefact Pages (`actions/upload-pages-artifact`)
-- Publication via `actions/deploy-pages`
+### `deploy_fly`
+- Setup de `flyctl` via `superfly/flyctl-actions/setup-flyctl`
+- Vérification du secret `FLY_API_TOKEN`
+- Déploiement de l'image avec `flyctl deploy --remote-only --config fly.toml`
+- Le conteneur Node sert à la fois l'API Express et le front `dist/`
 
-> Sur GitHub Pages, les routes SPA peuvent répondre en HTTP `404` tout en renvoyant le shell applicatif (fichier `404.html`) ; le rendu côté client reste fonctionnel.
+### `db-migrate-fly.yml` (manuel)
+- Déclenchement manuel via **Actions → Fly DB Maintenance → Run workflow**
+- Paramètres:
+     - `app_name` (nom de l'app Fly cible)
+     - `apply_schema` (`true` pour exécuter `schema_complet.sql`, `false` sinon)
+     - `seed_file` (`none`, `peuplement_minimal.sql`, `peuplement_rapide.sql`, `peuplement_massif.sql`)
+- Exécution SQL dans la machine Fly via `flyctl ssh console`
+- Contrôles de sécurité: validation du token, du nom d'app et du fichier de seed
+
+> Recommandation: exécuter `schema_complet.sql` une seule fois sur un environnement vierge (script non idempotent), puis utiliser uniquement les seeds selon le besoin.
 
 ### `notify`
 - Construit un résumé HTML de tous les jobs
@@ -105,6 +114,7 @@ push / pull_request → main
 
 | Secret | Obligatoire | Description |
 |--------|-------------|-------------|
+| `FLY_API_TOKEN` | Oui (pour `deploy_fly` et `db-migrate-fly.yml`) | Token d'authentification Fly.io pour `flyctl deploy` et maintenance DB |
 | `SONAR_TOKEN` | Recommandé | Token d'analyse SonarCloud (généré dans Compte → Sécurité) |
 | `CYPRESS_RECORD_KEY` | Pour Cypress Cloud | Clé d'enregistrement Cypress Cloud |
 | `MAIL_SERVER` | Pour notify | Serveur SMTP (ex. `smtp.gmail.com`) |
@@ -115,7 +125,7 @@ push / pull_request → main
 
 > Pour Gmail : activer la validation en 2 étapes puis générer un **App Password** dans Compte Google → Sécurité → Mots de passe des applications.
 
-`GITHUB_TOKEN` est fourni automatiquement par GitHub Actions (used pour GHCR, Pages, PR checks).
+`GITHUB_TOKEN` est fourni automatiquement par GitHub Actions (utilisé pour GHCR et les checks PR).
 
 ---
 
@@ -159,6 +169,6 @@ Les workflows redondants suivants ont été retirés du dépôt pour éviter les
 
 ## Axes d'amélioration potentiels
 
-- **Partage d'artefacts** : partager le dossier `dist/` via `actions/upload-artifact` dans `build` et `actions/download-artifact` dans `deploy` pour éviter de rebâtir deux fois
+- **Partage d'artefacts** : partager le dossier `dist/` via `actions/upload-artifact` dans `build` et `actions/download-artifact` dans `deploy_fly` pour éviter de rebâtir deux fois
 - **Cache npm** : ajouter `cache: 'npm'` dans `actions/setup-node` pour accélérer `npm ci`
 - **Image Docker** : supprimer le `docker build` superflu dans le job `build` (l'image est déjà rebâtie dans `publish-image`)
