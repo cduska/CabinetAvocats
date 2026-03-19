@@ -73,8 +73,10 @@ push / pull_request → main
 
 ### `cypress-run`
 - Exécution en matrice sur 2 conteneurs (`containers: [1, 2]`)
-- Démarre le serveur de développement (`npm run dev` sur le port 5173)
-- Attend que le serveur réponde (timeout 120 s)
+- Démarre un service PostgreSQL éphémère (`postgres:16`)
+- Initialise la base de test (`schema_complet.sql` + `peuplement_minimal.sql`)
+- Démarre l'API + le front (`npm run dev:ci`)
+- Attend que le front (`5173`) et l'API (`8787/healthz`) répondent (timeout 180 s)
 - Lance les tests Cypress en mode headless (Chrome)
 - Enregistre les runs sur Cypress Cloud (`record: true`, `parallel: true`)
 
