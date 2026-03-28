@@ -11,6 +11,8 @@ permissions:
   packages: write
   checks: write
   pull-requests: write
+  pages: write
+  id-token: write
 
 jobs:
   build:
@@ -193,6 +195,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && always() && needs.build.result == 'success' && needs.cypress-run.result == 'success' && (needs.sonar.result == 'success' || needs.sonar.result == 'skipped')
     env:
       FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      NEON_DATABASE_URL_PROD: ${{ secrets['NEON_DATABASE_URL_PROD'] }}
     steps:
       - uses: actions/checkout@v4
       - name: Setup flyctl
@@ -249,12 +252,65 @@ jobs:
 
           echo "Unable to create Fly app ${app_name}."
           exit ${create_code}
+      - name: Sync Fly production secrets
+        if: env.FLY_API_TOKEN != '' && steps.fly-ready.outputs.deploy_enabled == 'true'
+        shell: bash
+        run: |
+          app_name="${{ steps.fly-app.outputs.app_name }}"
+
+          if [ -z "$NEON_DATABASE_URL_PROD" ]; then
+            echo "Missing secret NEON_DATABASE_URL_PROD"
+            exit 1
+          fi
+
+          pages_origin="https://${{ github.repository_owner }}.github.io"
+
+          flyctl secrets set \
+            DATABASE_URL="$NEON_DATABASE_URL_PROD" \
+            CORS_ALLOWED_ORIGINS="$pages_origin" \
+            --app "$app_name"
       - name: Deploy to Fly.io
         if: env.FLY_API_TOKEN != '' && steps.fly-ready.outputs.deploy_enabled == 'true'
         run: flyctl deploy --remote-only --config fly.toml --app "${{ steps.fly-app.outputs.app_name }}"
 
+  deploy_pages:
+    needs:
+      - build
+      - cypress-run
+      - sonar
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && always() && needs.build.result == 'success' && needs.cypress-run.result == 'success' && (needs.sonar.result == 'success' || needs.sonar.result == 'skipped')
+    env:
+      VITE_USE_NEON_DATA_API: 'true'
+      VITE_NEON_DATA_API_URL: ${{ secrets['VITE_NEON_DATA_API_URL_PROD'] }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm ci
+      - name: Validate Neon Data API URL
+        run: |
+          if [ -z "$VITE_NEON_DATA_API_URL" ]; then
+            echo "Missing secret VITE_NEON_DATA_API_URL_PROD"
+            exit 1
+          fi
+      - name: Build frontend for GitHub Pages
+        run: npm run build
+      - name: Setup GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
   notify:
-    needs: [build, sonar, cypress-run, publish-image, deploy_fly]
+    needs: [build, sonar, cypress-run, publish-image, deploy_fly, deploy_pages]
     if: always()
     runs-on: ubuntu-latest
     env:
@@ -313,6 +369,10 @@ jobs:
                 <td>deploy_fly</td>
                 <td>${{ needs.deploy_fly.result == 'success' && '✅ succès' || needs.deploy_fly.result == 'skipped' && '⏭️ ignoré' || '❌ échec' }}</td>
               </tr>
+              <tr>
+                <td>deploy_pages</td>
+                <td>${{ needs.deploy_pages.result == 'success' && '✅ succès' || needs.deploy_pages.result == 'skipped' && '⏭️ ignoré' || '❌ échec' }}</td>
+              </tr>
             </table>
 
             <h3>Qualité SonarCloud</h3>
@@ -344,6 +404,7 @@ jobs:
             <ul>
               <li><a href="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}">Voir ce run GitHub Actions</a></li>
               <li><a href="https://github.com/${{ github.repository }}/commit/${{ github.sha }}">Voir le commit</a></li>
+              <li><a href="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/">Ouvrir GitHub Pages</a></li>
             </ul>
 
   cypress-run:
@@ -385,7 +446,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Wait for PostgreSQL
-        run: npx wait-on tcp:127.0.0.1:5432 --timeout 120000
+        run: npm run db:wait
       - name: Initialize test database
         run: |
           node scripts/run-sql-file.mjs schema_complet.sql

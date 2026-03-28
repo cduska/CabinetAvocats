@@ -13,8 +13,48 @@ const distPath = path.resolve(__dirname, '../dist');
 const app = express();
 app.disable('x-powered-by');
 const apiPort = Number(process.env.PORT || process.env.API_PORT || 8787);
+const NO_ACCESS_AGENCE_FILTER = '__no_agence_access__';
+
+const ALLOWED_DOCUMENT_SCOPE_TYPES = new Set(['dossier', 'procedure', 'instance']);
+
+const configuredCorsOrigins = new Set(
+  (process.env.CORS_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+);
+
+function isAllowedCorsOrigin(origin) {
+  if (!origin) {
+    return false;
+  }
+
+  if (configuredCorsOrigins.has(origin)) {
+    return true;
+  }
+
+  // Allow GitHub Pages origins by default for static production frontend hosting.
+  return /^https:\/\/[a-z0-9-]+\.github\.io$/i.test(origin);
+}
 
 app.use(express.json({ limit: '1mb' }));
+
+app.use((request, response, next) => {
+  const origin = request.get('origin');
+  if (isAllowedCorsOrigin(origin)) {
+    response.setHeader('Access-Control-Allow-Origin', origin);
+    response.setHeader('Vary', 'Origin');
+    response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Agency, X-Session-Metier, X-Session-User-Id, X-Session-User-Email, X-Session-User');
+  }
+
+  if (request.method === 'OPTIONS') {
+    response.status(204).end();
+    return;
+  }
+
+  next();
+});
 
 app.get('/healthz', async (request, response) => {
   try {
@@ -39,6 +79,35 @@ function toSearchPattern(value) {
   return normalized ? `%${normalized}%` : null;
 }
 
+function toBoolean(value, fallback = false) {
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  if (['true', '1', 'yes', 'oui'].includes(normalized)) {
+    return true;
+  }
+
+  if (['false', '0', 'no', 'non'].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
+}
+
+function toJsonObject(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return value;
+  }
+
+  return null;
+}
+
 function getSessionContext(request) {
   return {
     agence: toNullableText(request.get('X-Session-Agency')),
@@ -54,6 +123,27 @@ function isNumericIdentifier(value) {
 }
 
 async function resolveAgenceFilter(requestedAgence, sessionContext) {
+  const metier = toNullableText(sessionContext.metier);
+  if (metier?.toLowerCase() === 'collaborateur') {
+    const collaborateurScope = await resolveCollaborateurScope(sessionContext);
+    if (!collaborateurScope.restrictToCollaborateur || collaborateurScope.collaborateurId === null) {
+      return NO_ACCESS_AGENCE_FILTER;
+    }
+
+    const collaboratorAgency = await query(
+      `
+        SELECT id_agence AS "agenceId"
+        FROM collaborateur
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [collaborateurScope.collaborateurId],
+    );
+
+    const agenceId = collaboratorAgency.rows[0]?.agenceId;
+    return agenceId === null || agenceId === undefined ? NO_ACCESS_AGENCE_FILTER : String(agenceId);
+  }
+
   const candidate = toNullableText(requestedAgence) ?? sessionContext.agence;
   if (!candidate) {
     return null;
@@ -74,6 +164,21 @@ async function resolveAgenceFilter(requestedAgence, sessionContext) {
   );
 
   return matched.rows[0] ? String(matched.rows[0].id) : null;
+}
+
+async function resolveAgenceIdForMutation(requestedAgence, sessionContext) {
+  const agenceFilter = await resolveAgenceFilter(requestedAgence, sessionContext);
+
+  if (agenceFilter === NO_ACCESS_AGENCE_FILTER) {
+    return null;
+  }
+
+  if (agenceFilter && isNumericIdentifier(agenceFilter)) {
+    return Number(agenceFilter);
+  }
+
+  const agenceLabel = toNullableText(requestedAgence) ?? sessionContext.agence;
+  return findOrCreateAgenceId(agenceLabel);
 }
 
 function buildFullNameFromSessionUserId(userId) {
@@ -219,6 +324,8 @@ async function findOrCreateLabelId(kind, label) {
     statut_dossier: { tableName: 'statut_dossier', columnName: 'libelle' },
     type_procedure: { tableName: 'type_procedure', columnName: 'libelle' },
     statut_procedure: { tableName: 'statut_procedure', columnName: 'libelle' },
+    type_instance: { tableName: 'type_instance', columnName: 'libelle' },
+    statut_instance: { tableName: 'statut_instance', columnName: 'libelle' },
     type_document: { tableName: 'type_document', columnName: 'libelle' },
   }[kind];
 
@@ -453,6 +560,108 @@ async function getProcedureInstancesByProcedureId(procedureId) {
   return result.rows;
 }
 
+async function getInstanceById(instanceId) {
+  const result = await query(
+    `
+      SELECT
+        ij.id,
+        ij.id_procedure AS "procedureId",
+        COALESCE(ti.libelle, 'Instance') AS type,
+        COALESCE(si.libelle, 'Non renseigne') AS statut,
+        COALESCE(to_char(ij.date_debut, 'YYYY-MM-DD'), '') AS debut,
+        COALESCE(to_char(ij.date_fin, 'YYYY-MM-DD'), '') AS fin
+      FROM instance_juridique ij
+      LEFT JOIN type_instance ti ON ti.id = ij.id_type_instance
+      LEFT JOIN statut_instance si ON si.id = ij.id_statut_instance
+      WHERE ij.id = $1
+      LIMIT 1
+    `,
+    [instanceId],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+async function getProcedureHistoryByProcedureId(procedureId) {
+  const result = await query(
+    `
+      SELECT
+        hp.id,
+        COALESCE(hp.description, 'Modification de la procedure') AS action,
+        COALESCE(trim(concat_ws(' ', c.prenom, c.nom)), 'Systeme API Cabinet') AS actor,
+        COALESCE(to_char(hp.date_modification, 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS at,
+        COALESCE(hp.description, 'Aucun detail fourni') AS details
+      FROM historique_procedure hp
+      LEFT JOIN collaborateur c ON c.id = hp.auteur
+      WHERE hp.id_procedure = $1
+      ORDER BY hp.date_modification DESC NULLS LAST, hp.id DESC
+    `,
+    [procedureId],
+  );
+
+  return result.rows;
+}
+
+function buildProcedureHistoryDescription(previousProcedure, nextProcedure) {
+  if (!previousProcedure || !nextProcedure) {
+    return 'Modification des donnees de la procedure.';
+  }
+
+  const changes = [];
+
+  if (previousProcedure.type !== nextProcedure.type) {
+    changes.push(`type: "${previousProcedure.type}" -> "${nextProcedure.type}"`);
+  }
+
+  if (previousProcedure.statut !== nextProcedure.statut) {
+    changes.push(`statut: "${previousProcedure.statut}" -> "${nextProcedure.statut}"`);
+  }
+
+  if (previousProcedure.debut !== nextProcedure.debut) {
+    changes.push(`debut: "${previousProcedure.debut || 'Non renseigne'}" -> "${nextProcedure.debut || 'Non renseigne'}"`);
+  }
+
+  if (previousProcedure.fin !== nextProcedure.fin) {
+    changes.push(`fin: "${previousProcedure.fin || 'En cours'}" -> "${nextProcedure.fin || 'En cours'}"`);
+  }
+
+  if (changes.length === 0) {
+    return 'Sauvegarde de la procedure sans changement detecte.';
+  }
+
+  return `Mise a jour procedure (${changes.join(' | ')})`;
+}
+
+function buildInstanceHistoryDescription(previousInstance, nextInstance) {
+  if (!previousInstance || !nextInstance) {
+    return 'Modification des donnees d\'instance.';
+  }
+
+  const changes = [];
+
+  if (previousInstance.type !== nextInstance.type) {
+    changes.push(`type instance: "${previousInstance.type}" -> "${nextInstance.type}"`);
+  }
+
+  if (previousInstance.statut !== nextInstance.statut) {
+    changes.push(`statut instance: "${previousInstance.statut}" -> "${nextInstance.statut}"`);
+  }
+
+  if (previousInstance.debut !== nextInstance.debut) {
+    changes.push(`debut instance: "${previousInstance.debut || 'Non renseigne'}" -> "${nextInstance.debut || 'Non renseigne'}"`);
+  }
+
+  if (previousInstance.fin !== nextInstance.fin) {
+    changes.push(`fin instance: "${previousInstance.fin || 'En cours'}" -> "${nextInstance.fin || 'En cours'}"`);
+  }
+
+  if (changes.length === 0) {
+    return `Sauvegarde de l'instance #${nextInstance.id} sans changement detecte.`;
+  }
+
+  return `Mise a jour instance #${nextInstance.id} (${changes.join(' | ')})`;
+}
+
 async function hasProcedureAccess(procedureId, agenceFilter, collaborateurId) {
   const result = await query(
     `
@@ -493,17 +702,28 @@ async function getDocumentById(documentId) {
       SELECT
         d.id,
         COALESCE(td.libelle, 'Document') AS type,
-        COALESCE(ds.reference, '') AS "dossierReference",
+        COALESCE(ds.reference, pds.reference, ids.reference, '') AS "dossierReference",
+        d.id_procedure AS "procedureId",
+        d.id_instance AS "instanceId",
         COALESCE(trim(concat_ws(' ', c.prenom, c.nom)), 'Non assigne') AS auteur,
         COALESCE(to_char(d.date_creation, 'YYYY-MM-DD'), '') AS "dateCreation",
-        CASE
-          WHEN d.date_creation IS NULL THEN 'Brouillon'
-          WHEN d.date_creation < NOW() - INTERVAL '30 days' THEN 'Valide'
-          ELSE 'A relire'
-        END AS statut
+        COALESCE(d.statut_document,
+          CASE
+            WHEN d.date_creation IS NULL THEN 'Brouillon'
+            WHEN d.date_creation < NOW() - INTERVAL '30 days' THEN 'Valide'
+            ELSE 'A relire'
+          END
+        ) AS statut,
+        d.id_modele AS "modeleId",
+        d.numero_version_modele AS "modeleVersion"
       FROM document d
       LEFT JOIN type_document td ON td.id = d.id_type_document
       LEFT JOIN dossier ds ON ds.id = d.id_dossier
+      LEFT JOIN "procedure" p ON p.id = d.id_procedure
+      LEFT JOIN dossier pds ON pds.id = p.id_dossier
+      LEFT JOIN instance_juridique ij ON ij.id = d.id_instance
+      LEFT JOIN "procedure" ip ON ip.id = ij.id_procedure
+      LEFT JOIN dossier ids ON ids.id = ip.id_dossier
       LEFT JOIN collaborateur c ON c.id = d.auteur
       WHERE d.id = $1
     `,
@@ -511,6 +731,250 @@ async function getDocumentById(documentId) {
   );
 
   return result.rows[0] ?? null;
+}
+
+async function getModeleById(modeleId) {
+  const result = await query(
+    `
+      SELECT
+        md.id,
+        md.id_type_document AS "typeDocumentId",
+        COALESCE(td.libelle, 'Document') AS "typeDocumentLabel",
+        COALESCE(md.nom_modele, '') AS "nomModele",
+        COALESCE(md.description, '') AS description,
+        COALESCE(md.contenu_json, '{}'::jsonb) AS "contenuJson"
+      FROM modele_document md
+      LEFT JOIN type_document td ON td.id = md.id_type_document
+      WHERE md.id = $1
+      LIMIT 1
+    `,
+    [modeleId],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+async function getLatestModeleVersion(modeleId) {
+  const result = await query(
+    `
+      SELECT
+        id,
+        id_modele AS "modeleId",
+        numero_version AS "numeroVersion",
+        contenu_json AS "contenuJson",
+        COALESCE(to_char(cree_le, 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS "creeLe",
+        cree_par AS "creePar"
+      FROM modele_document_version
+      WHERE id_modele = $1
+      ORDER BY numero_version DESC
+      LIMIT 1
+    `,
+    [modeleId],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+async function getModeleVersion(modeleId, numeroVersion) {
+  const result = await query(
+    `
+      SELECT
+        id,
+        id_modele AS "modeleId",
+        numero_version AS "numeroVersion",
+        contenu_json AS "contenuJson",
+        COALESCE(to_char(cree_le, 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS "creeLe",
+        cree_par AS "creePar"
+      FROM modele_document_version
+      WHERE id_modele = $1
+        AND numero_version = $2
+      LIMIT 1
+    `,
+    [modeleId, numeroVersion],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+async function resolveDocumentScope(scopeType, scopeId, agenceFilter, collaborateurId) {
+  if (!ALLOWED_DOCUMENT_SCOPE_TYPES.has(scopeType)) {
+    return null;
+  }
+
+  if (!Number.isFinite(scopeId)) {
+    return null;
+  }
+
+  if (scopeType === 'dossier') {
+    const result = await query(
+      `
+        SELECT
+          d.id AS "dossierId",
+          NULL::int AS "procedureId",
+          NULL::int AS "instanceId",
+          d.reference AS "dossierReference"
+        FROM dossier d
+        LEFT JOIN client c ON c.id = d.id_client
+        LEFT JOIN agence a ON a.id = d.id_agence
+        WHERE d.id = $1
+          AND ($2::text IS NULL OR a.id::text = $2 OR lower(a.nom) = lower($2) OR lower(a.ville) = lower($2))
+          AND ($3::int IS NULL
+            OR c.id_collaborateur_responsable = $3
+            OR EXISTS (
+              SELECT 1
+              FROM affectation_dossier ad
+              WHERE ad.id_dossier = d.id
+                AND ad.id_collaborateur = $3
+                AND (ad.date_fin IS NULL OR ad.date_fin >= CURRENT_DATE)
+            ))
+        LIMIT 1
+      `,
+      [scopeId, agenceFilter, collaborateurId],
+    );
+
+    return result.rows[0] ?? null;
+  }
+
+  if (scopeType === 'procedure') {
+    const result = await query(
+      `
+        SELECT
+          d.id AS "dossierId",
+          p.id AS "procedureId",
+          NULL::int AS "instanceId",
+          d.reference AS "dossierReference"
+        FROM "procedure" p
+        LEFT JOIN dossier d ON d.id = p.id_dossier
+        LEFT JOIN client c ON c.id = d.id_client
+        LEFT JOIN agence a ON a.id = d.id_agence
+        WHERE p.id = $1
+          AND ($2::text IS NULL OR a.id::text = $2 OR lower(a.nom) = lower($2) OR lower(a.ville) = lower($2))
+          AND ($3::int IS NULL
+            OR c.id_collaborateur_responsable = $3
+            OR EXISTS (
+              SELECT 1
+              FROM affectation_dossier ad
+              WHERE ad.id_dossier = d.id
+                AND ad.id_collaborateur = $3
+                AND (ad.date_fin IS NULL OR ad.date_fin >= CURRENT_DATE)
+            )
+            OR EXISTS (
+              SELECT 1
+              FROM affectation_procedure ap
+              WHERE ap.id_procedure = p.id
+                AND ap.id_collaborateur = $3
+                AND (ap.date_fin IS NULL OR ap.date_fin >= CURRENT_DATE)
+            ))
+        LIMIT 1
+      `,
+      [scopeId, agenceFilter, collaborateurId],
+    );
+
+    return result.rows[0] ?? null;
+  }
+
+  const result = await query(
+    `
+      SELECT
+        d.id AS "dossierId",
+        p.id AS "procedureId",
+        ij.id AS "instanceId",
+        d.reference AS "dossierReference"
+      FROM instance_juridique ij
+      LEFT JOIN "procedure" p ON p.id = ij.id_procedure
+      LEFT JOIN dossier d ON d.id = p.id_dossier
+      LEFT JOIN client c ON c.id = d.id_client
+      LEFT JOIN agence a ON a.id = d.id_agence
+      WHERE ij.id = $1
+        AND ($2::text IS NULL OR a.id::text = $2 OR lower(a.nom) = lower($2) OR lower(a.ville) = lower($2))
+        AND ($3::int IS NULL
+          OR c.id_collaborateur_responsable = $3
+          OR EXISTS (
+            SELECT 1
+            FROM affectation_dossier ad
+            WHERE ad.id_dossier = d.id
+              AND ad.id_collaborateur = $3
+              AND (ad.date_fin IS NULL OR ad.date_fin >= CURRENT_DATE)
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM affectation_procedure ap
+            WHERE ap.id_procedure = p.id
+              AND ap.id_collaborateur = $3
+              AND (ap.date_fin IS NULL OR ap.date_fin >= CURRENT_DATE)
+          ))
+      LIMIT 1
+    `,
+    [scopeId, agenceFilter, collaborateurId],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+async function syncModeleSousDomaines(modeleId, sousDomaines, replace = false) {
+  if (!Array.isArray(sousDomaines)) {
+    return;
+  }
+
+  if (replace) {
+    await query('DELETE FROM modele_sous_domaine WHERE id_modele = $1', [modeleId]);
+  }
+
+  for (const sousDomaineId of sousDomaines) {
+    if (!Number.isFinite(Number(sousDomaineId))) {
+      continue;
+    }
+
+    await query(
+      `
+        INSERT INTO modele_sous_domaine (id_modele, id_sous_domaine)
+        VALUES ($1, $2::int)
+        ON CONFLICT DO NOTHING
+      `,
+      [modeleId, sousDomaineId],
+    );
+  }
+}
+
+function normalizeParagraphes(entries) {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+
+  const normalized = [];
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    const contenu = toNullableText(entry?.contenu);
+    if (!contenu) {
+      continue;
+    }
+
+    const ordre = Number.isFinite(Number(entry?.ordre)) ? Number(entry.ordre) : index + 1;
+    normalized.push({ ordre, contenu });
+  }
+
+  return normalized;
+}
+
+async function syncModeleParagraphes(modeleId, paragraphes, replace = false) {
+  if (!Array.isArray(paragraphes)) {
+    return;
+  }
+
+  if (replace) {
+    await query('DELETE FROM paragraphe_predefini WHERE id_modele = $1', [modeleId]);
+  }
+
+  const normalized = normalizeParagraphes(paragraphes);
+  for (const entry of normalized) {
+    await query(
+      `
+        INSERT INTO paragraphe_predefini (id_modele, ordre, contenu)
+        VALUES ($1, $2, $3)
+      `,
+      [modeleId, entry.ordre, entry.contenu],
+    );
+  }
 }
 
 app.get('/api/health', async (request, response) => {
@@ -524,12 +988,45 @@ app.get('/api/health', async (request, response) => {
 
 app.get('/api/agence', async (request, response, next) => {
   try {
+    const sessionContext = getSessionContext(request);
+    const collaborateurScope = await resolveCollaborateurScope(sessionContext);
+    let agenceFilter = await resolveAgenceFilter(request.query.agence, sessionContext);
+
+    if (collaborateurScope.restrictToCollaborateur) {
+      if (collaborateurScope.collaborateurId === null) {
+        response.json([]);
+        return;
+      }
+
+      if (agenceFilter === null) {
+        const collaboratorAgency = await query(
+          `
+            SELECT id_agence AS "agenceId"
+            FROM collaborateur
+            WHERE id = $1
+            LIMIT 1
+          `,
+          [collaborateurScope.collaborateurId],
+        );
+
+        const agenceId = collaboratorAgency.rows[0]?.agenceId;
+        if (agenceId === null || agenceId === undefined) {
+          response.json([]);
+          return;
+        }
+
+        agenceFilter = String(agenceId);
+      }
+    }
+
     const result = await query(
       `
         SELECT id, nom
         FROM agence
+        WHERE ($1::text IS NULL OR id::text = $1 OR lower(nom) = lower($1) OR lower(ville) = lower($1))
         ORDER BY nom ASC, id ASC
       `,
+      [agenceFilter],
     );
 
     response.json(result.rows);
@@ -544,6 +1041,54 @@ app.get('/api/type_dossier', async (request, response, next) => {
       `
         SELECT id, libelle
         FROM type_dossier
+        ORDER BY id ASC
+      `,
+    );
+
+    response.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/type_procedure', async (request, response, next) => {
+  try {
+    const result = await query(
+      `
+        SELECT id, libelle
+        FROM type_procedure
+        ORDER BY id ASC
+      `,
+    );
+
+    response.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/type_instance', async (request, response, next) => {
+  try {
+    const result = await query(
+      `
+        SELECT id, libelle
+        FROM type_instance
+        ORDER BY id ASC
+      `,
+    );
+
+    response.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/type_document', async (request, response, next) => {
+  try {
+    const result = await query(
+      `
+        SELECT id, libelle
+        FROM type_document
         ORDER BY id ASC
       `,
     );
@@ -576,6 +1121,22 @@ app.get('/api/statut_procedure', async (request, response, next) => {
       `
         SELECT id, libelle
         FROM statut_procedure
+        ORDER BY id ASC
+      `,
+    );
+
+    response.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/statut_instance', async (request, response, next) => {
+  try {
+    const result = await query(
+      `
+        SELECT id, libelle
+        FROM statut_instance
         ORDER BY id ASC
       `,
     );
@@ -833,9 +1394,12 @@ app.post('/api/clients', async (request, response, next) => {
 
     const email = toNullableText(request.body.email);
     const telephone = toNullableText(request.body.telephone);
-    const agenceLabel = toNullableText(request.body.agence) ?? sessionContext.agence;
     const responsableName = toNullableText(request.body.responsable) ?? sessionContext.user;
-    const agenceId = await findOrCreateAgenceId(agenceLabel);
+    const agenceId = await resolveAgenceIdForMutation(request.body.agence, sessionContext);
+    if (agenceId === null) {
+      response.status(403).json({ message: 'Aucune agence autorisee pour ce collaborateur.' });
+      return;
+    }
     const responsableId = await findCollaborateurId(responsableName);
 
     const inserted = await query(
@@ -989,8 +1553,11 @@ app.post('/api/dossiers', async (request, response, next) => {
       return;
     }
 
-    const agenceLabel = toNullableText(request.body.agence) ?? sessionContext.agence;
-    const agenceId = await findOrCreateAgenceId(agenceLabel);
+    const agenceId = await resolveAgenceIdForMutation(request.body.agence, sessionContext);
+    if (agenceId === null) {
+      response.status(403).json({ message: 'Aucune agence autorisee pour ce collaborateur.' });
+      return;
+    }
     const clientId = await findOrCreateClientId(clientValue, agenceId);
     const typeId = await findOrCreateLabelId('type_dossier', request.body.type ?? 'Contentieux');
     const statutId = await findOrCreateLabelId('statut_dossier', request.body.statut ?? 'A valider');
@@ -1280,6 +1847,36 @@ app.get('/api/procedures/:id/instances', async (request, response, next) => {
   }
 });
 
+app.get('/api/procedures/:id/history', async (request, response, next) => {
+  try {
+    const procedureId = Number(request.params.id);
+    if (!Number.isFinite(procedureId)) {
+      response.status(400).json({ message: 'ID procedure invalide.' });
+      return;
+    }
+
+    const sessionContext = getSessionContext(request);
+    const agenceFilter = await resolveAgenceFilter(request.query.agence, sessionContext);
+    const collaborateurScope = await resolveCollaborateurScope(sessionContext);
+
+    if (collaborateurScope.restrictToCollaborateur && collaborateurScope.collaborateurId === null) {
+      response.status(404).json({ message: 'Procedure introuvable.' });
+      return;
+    }
+
+    const accessGranted = await hasProcedureAccess(procedureId, agenceFilter, collaborateurScope.collaborateurId);
+    if (!accessGranted) {
+      response.status(404).json({ message: 'Procedure introuvable.' });
+      return;
+    }
+
+    const rows = await getProcedureHistoryByProcedureId(procedureId);
+    response.json(rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.put('/api/procedures/:id', async (request, response, next) => {
   try {
     const procedureId = Number(request.params.id);
@@ -1299,6 +1896,12 @@ app.put('/api/procedures/:id', async (request, response, next) => {
 
     const accessGranted = await hasProcedureAccess(procedureId, agenceFilter, collaborateurScope.collaborateurId);
     if (!accessGranted) {
+      response.status(404).json({ message: 'Procedure introuvable.' });
+      return;
+    }
+
+    const previousProcedure = await getProcedureById(procedureId);
+    if (!previousProcedure) {
       response.status(404).json({ message: 'Procedure introuvable.' });
       return;
     }
@@ -1332,7 +1935,103 @@ app.put('/api/procedures/:id', async (request, response, next) => {
       response.status(404).json({ message: 'Procedure introuvable.' });
       return;
     }
+
+    const actorIdByEmail = await findCollaborateurIdByEmail(sessionContext.userEmail);
+    const actorId = actorIdByEmail ?? await findCollaborateurId(sessionContext.user);
+    const description = buildProcedureHistoryDescription(previousProcedure, row);
+
+    await query(
+      `
+        INSERT INTO historique_procedure (id_procedure, auteur, date_modification, description)
+        VALUES ($1, $2, NOW(), $3)
+      `,
+      [procedureId, actorId, description],
+    );
+
     response.json(row);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/instances/:id', async (request, response, next) => {
+  try {
+    const instanceId = Number(request.params.id);
+    if (!Number.isFinite(instanceId)) {
+      response.status(400).json({ message: 'ID instance invalide.' });
+      return;
+    }
+
+    const sessionContext = getSessionContext(request);
+    const agenceFilter = await resolveAgenceFilter(request.query.agence, sessionContext);
+    const collaborateurScope = await resolveCollaborateurScope(sessionContext);
+
+    if (collaborateurScope.restrictToCollaborateur && collaborateurScope.collaborateurId === null) {
+      response.status(404).json({ message: 'Instance introuvable.' });
+      return;
+    }
+
+    const previousInstance = await getInstanceById(instanceId);
+    if (!previousInstance) {
+      response.status(404).json({ message: 'Instance introuvable.' });
+      return;
+    }
+
+    const accessGranted = await hasProcedureAccess(previousInstance.procedureId, agenceFilter, collaborateurScope.collaborateurId);
+    if (!accessGranted) {
+      response.status(404).json({ message: 'Instance introuvable.' });
+      return;
+    }
+
+    const typeLabel = toNullableText(request.body.type);
+    const statutLabel = toNullableText(request.body.statut);
+    if (!typeLabel || !statutLabel) {
+      response.status(400).json({ message: 'type et statut sont obligatoires.' });
+      return;
+    }
+
+    const typeId = await findOrCreateLabelId('type_instance', typeLabel);
+    const statutId = await findOrCreateLabelId('statut_instance', statutLabel);
+    const dateDebut = toNullableText(request.body.debut);
+    const dateFin = toNullableText(request.body.fin);
+
+    await query(
+      `
+        UPDATE instance_juridique
+        SET id_type_instance = $1,
+            id_statut_instance = $2,
+            date_debut = $3::date,
+            date_fin = $4::date
+        WHERE id = $5
+      `,
+      [typeId, statutId, dateDebut, dateFin, instanceId],
+    );
+
+    const row = await getInstanceById(instanceId);
+    if (!row) {
+      response.status(404).json({ message: 'Instance introuvable.' });
+      return;
+    }
+
+    const actorIdByEmail = await findCollaborateurIdByEmail(sessionContext.userEmail);
+    const actorId = actorIdByEmail ?? await findCollaborateurId(sessionContext.user);
+    const description = buildInstanceHistoryDescription(previousInstance, row);
+
+    await query(
+      `
+        INSERT INTO historique_procedure (id_procedure, auteur, date_modification, description)
+        VALUES ($1, $2, NOW(), $3)
+      `,
+      [previousInstance.procedureId, actorId, description],
+    );
+
+    response.json({
+      id: row.id,
+      type: row.type,
+      statut: row.statut,
+      debut: row.debut,
+      fin: row.fin,
+    });
   } catch (error) {
     next(error);
   }
@@ -1419,14 +2118,20 @@ app.get('/api/documents', async (request, response, next) => {
         SELECT
           doc.id,
           COALESCE(td.libelle, 'Document') AS type,
+          doc.id_procedure AS "procedureId",
+          doc.id_instance AS "instanceId",
           COALESCE(direct_dossier.reference, procedure_dossier.reference, instance_dossier.reference, '') AS "dossierReference",
           COALESCE(trim(concat_ws(' ', auteur_collab.prenom, auteur_collab.nom)), 'Non assigne') AS auteur,
           COALESCE(to_char(doc.date_creation, 'YYYY-MM-DD'), '') AS "dateCreation",
-          CASE
-            WHEN doc.date_creation IS NULL THEN 'Brouillon'
-            WHEN doc.date_creation < NOW() - INTERVAL '30 days' THEN 'Valide'
-            ELSE 'A relire'
-          END AS statut
+          COALESCE(doc.statut_document,
+            CASE
+              WHEN doc.date_creation IS NULL THEN 'Brouillon'
+              WHEN doc.date_creation < NOW() - INTERVAL '30 days' THEN 'Valide'
+              ELSE 'A relire'
+            END
+          ) AS statut,
+          doc.id_modele AS "modeleId",
+          doc.numero_version_modele AS "modeleVersion"
         FROM document doc
         LEFT JOIN type_document td ON td.id = doc.id_type_document
         LEFT JOIN dossier direct_dossier ON direct_dossier.id = doc.id_dossier
@@ -1473,6 +2178,7 @@ app.post('/api/documents', async (request, response, next) => {
     const dossierIdentifier = toNullableText(request.body.dossierReference);
     const auteurName = toNullableText(request.body.auteur) ?? sessionContext.user;
     const auteurId = await findCollaborateurId(auteurName);
+    const statutDocument = toNullableText(request.body.statut) ?? 'brouillon';
 
     let dossierId = null;
     if (dossierIdentifier) {
@@ -1492,15 +2198,462 @@ app.post('/api/documents', async (request, response, next) => {
 
     const inserted = await query(
       `
-        INSERT INTO document (id_type_document, id_dossier, auteur, chemin_fichier, date_creation)
-        VALUES ($1, $2, $3, $4, NOW())
+        INSERT INTO document (id_type_document, id_dossier, auteur, chemin_fichier, date_creation, statut_document)
+        VALUES ($1, $2, $3, $4, NOW(), $5)
         RETURNING id
       `,
-      [typeId, dossierId, auteurId, '/documents/local'],
+      [typeId, dossierId, auteurId, '/documents/local', statutDocument],
     );
 
     const row = await getDocumentById(inserted.rows[0].id);
     response.status(201).json(row);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/modeles', async (request, response, next) => {
+  try {
+    const searchPattern = toSearchPattern(request.query.q);
+    const typeDocumentId = toNullableText(request.query.typeDocumentId);
+    const sousDomaineId = toNullableText(request.query.sousDomaineId);
+    const publishedOnly = toBoolean(request.query.publishedOnly, false);
+
+    const result = await query(
+      `
+        SELECT
+          md.id,
+          md.id_type_document AS "typeDocumentId",
+          COALESCE(td.libelle, 'Document') AS "typeDocumentLabel",
+          COALESCE(md.nom_modele, '') AS "nomModele",
+          COALESCE(md.description, '') AS description,
+          COALESCE(latest.numero_version, 0) AS "latestVersion",
+          COALESCE(to_char(latest.cree_le, 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS "latestVersionCreatedAt",
+          (latest.id IS NOT NULL) AS published
+        FROM modele_document md
+        LEFT JOIN type_document td ON td.id = md.id_type_document
+        LEFT JOIN LATERAL (
+          SELECT id, numero_version, cree_le
+          FROM modele_document_version
+          WHERE id_modele = md.id
+          ORDER BY numero_version DESC
+          LIMIT 1
+        ) AS latest ON true
+        LEFT JOIN modele_sous_domaine msd ON msd.id_modele = md.id
+        WHERE ($1::text IS NULL
+          OR md.nom_modele ILIKE $1
+          OR md.description ILIKE $1
+          OR td.libelle ILIKE $1)
+          AND ($2::text IS NULL OR md.id_type_document::text = $2)
+          AND ($3::text IS NULL OR msd.id_sous_domaine::text = $3)
+          AND ($4::boolean = false OR latest.id IS NOT NULL)
+        GROUP BY md.id, td.libelle, latest.id, latest.numero_version, latest.cree_le
+        ORDER BY md.id DESC
+      `,
+      [searchPattern, typeDocumentId, sousDomaineId, publishedOnly],
+    );
+
+    response.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/modeles/:id', async (request, response, next) => {
+  try {
+    const modeleId = Number(request.params.id);
+    if (!Number.isFinite(modeleId)) {
+      response.status(400).json({ message: 'ID modele invalide.' });
+      return;
+    }
+
+    const modele = await getModeleById(modeleId);
+    if (!modele) {
+      response.status(404).json({ message: 'Modele introuvable.' });
+      return;
+    }
+
+    const [sousDomainesResult, paragraphesResult, latestVersion] = await Promise.all([
+      query(
+        `
+          SELECT id_sous_domaine AS "sousDomaineId"
+          FROM modele_sous_domaine
+          WHERE id_modele = $1
+          ORDER BY id_sous_domaine ASC
+        `,
+        [modeleId],
+      ),
+      query(
+        `
+          SELECT id, COALESCE(ordre, 0) AS ordre, COALESCE(contenu, '') AS contenu
+          FROM paragraphe_predefini
+          WHERE id_modele = $1
+          ORDER BY ordre ASC, id ASC
+        `,
+        [modeleId],
+      ),
+      getLatestModeleVersion(modeleId),
+    ]);
+
+    response.json({
+      ...modele,
+      sousDomaines: sousDomainesResult.rows.map((row) => row.sousDomaineId),
+      paragraphes: paragraphesResult.rows,
+      latestVersion,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/modeles', async (request, response, next) => {
+  try {
+    const nomModele = toNullableText(request.body.nomModele);
+    const typeDocumentId = toNullableText(request.body.typeDocumentId);
+    const description = toNullableText(request.body.description);
+    const contenuJson = toJsonObject(request.body.contenuJson) ?? {};
+    const sousDomaines = Array.isArray(request.body.sousDomaines) ? request.body.sousDomaines : [];
+    const paragraphes = Array.isArray(request.body.paragraphes) ? request.body.paragraphes : [];
+
+    if (!nomModele || !typeDocumentId) {
+      response.status(400).json({ message: 'nomModele et typeDocumentId sont obligatoires.' });
+      return;
+    }
+
+    const inserted = await query(
+      `
+        INSERT INTO modele_document (id_type_document, nom_modele, description, contenu_json)
+        VALUES ($1::int, $2, $3, $4::jsonb)
+        RETURNING id
+      `,
+      [typeDocumentId, nomModele, description, JSON.stringify(contenuJson)],
+    );
+
+    const modeleId = inserted.rows[0].id;
+
+    await syncModeleSousDomaines(modeleId, sousDomaines, false);
+    await syncModeleParagraphes(modeleId, paragraphes, false);
+
+    const created = await getModeleById(modeleId);
+    response.status(201).json(created);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/modeles/:id', async (request, response, next) => {
+  try {
+    const modeleId = Number(request.params.id);
+    if (!Number.isFinite(modeleId)) {
+      response.status(400).json({ message: 'ID modele invalide.' });
+      return;
+    }
+
+    const existing = await getModeleById(modeleId);
+    if (!existing) {
+      response.status(404).json({ message: 'Modele introuvable.' });
+      return;
+    }
+
+    const nomModele = toNullableText(request.body.nomModele) ?? existing.nomModele;
+    const description = toNullableText(request.body.description) ?? '';
+    const typeDocumentId = toNullableText(request.body.typeDocumentId) ?? String(existing.typeDocumentId);
+    const contenuJson = toJsonObject(request.body.contenuJson) ?? existing.contenuJson ?? {};
+    const sousDomaines = Array.isArray(request.body.sousDomaines) ? request.body.sousDomaines : null;
+    const paragraphes = Array.isArray(request.body.paragraphes) ? request.body.paragraphes : null;
+
+    await query(
+      `
+        UPDATE modele_document
+        SET id_type_document = $1::int,
+            nom_modele = $2,
+            description = $3,
+            contenu_json = $4::jsonb
+        WHERE id = $5
+      `,
+      [typeDocumentId, nomModele, description, JSON.stringify(contenuJson), modeleId],
+    );
+
+    if (sousDomaines !== null) {
+      await syncModeleSousDomaines(modeleId, sousDomaines, true);
+    }
+
+    if (paragraphes !== null) {
+      await syncModeleParagraphes(modeleId, paragraphes, true);
+    }
+
+    const updated = await getModeleById(modeleId);
+    response.json(updated);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/modeles/:id/publish', async (request, response, next) => {
+  try {
+    const modeleId = Number(request.params.id);
+    if (!Number.isFinite(modeleId)) {
+      response.status(400).json({ message: 'ID modele invalide.' });
+      return;
+    }
+
+    const modele = await getModeleById(modeleId);
+    if (!modele) {
+      response.status(404).json({ message: 'Modele introuvable.' });
+      return;
+    }
+
+    const sessionContext = getSessionContext(request);
+    const actorIdByEmail = await findCollaborateurIdByEmail(sessionContext.userEmail);
+    const actorId = actorIdByEmail ?? await findCollaborateurId(sessionContext.user);
+
+    const latestVersion = await getLatestModeleVersion(modeleId);
+    const nextVersion = (latestVersion?.numeroVersion ?? 0) + 1;
+
+    const inserted = await query(
+      `
+        INSERT INTO modele_document_version (id_modele, numero_version, contenu_json, cree_par)
+        VALUES ($1, $2, $3::jsonb, $4)
+        RETURNING id
+      `,
+      [modeleId, nextVersion, JSON.stringify(modele.contenuJson ?? {}), actorId],
+    );
+
+    const version = await query(
+      `
+        SELECT
+          id,
+          id_modele AS "modeleId",
+          numero_version AS "numeroVersion",
+          contenu_json AS "contenuJson",
+          COALESCE(to_char(cree_le, 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS "creeLe",
+          cree_par AS "creePar"
+        FROM modele_document_version
+        WHERE id = $1
+      `,
+      [inserted.rows[0].id],
+    );
+
+    response.status(201).json(version.rows[0]);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/modeles/:id/versions', async (request, response, next) => {
+  try {
+    const modeleId = Number(request.params.id);
+    if (!Number.isFinite(modeleId)) {
+      response.status(400).json({ message: 'ID modele invalide.' });
+      return;
+    }
+
+    const rows = await query(
+      `
+        SELECT
+          mdv.id,
+          mdv.id_modele AS "modeleId",
+          mdv.numero_version AS "numeroVersion",
+          mdv.contenu_json AS "contenuJson",
+          COALESCE(to_char(mdv.cree_le, 'YYYY-MM-DD"T"HH24:MI:SS'), '') AS "creeLe",
+          mdv.cree_par AS "creePar"
+        FROM modele_document_version mdv
+        WHERE mdv.id_modele = $1
+        ORDER BY mdv.numero_version DESC
+      `,
+      [modeleId],
+    );
+
+    response.json(rows.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/modeles/:id/versions/:version', async (request, response, next) => {
+  try {
+    const modeleId = Number(request.params.id);
+    const numeroVersion = Number(request.params.version);
+    if (!Number.isFinite(modeleId) || !Number.isFinite(numeroVersion)) {
+      response.status(400).json({ message: 'Parametres invalides.' });
+      return;
+    }
+
+    const version = await getModeleVersion(modeleId, numeroVersion);
+    if (!version) {
+      response.status(404).json({ message: 'Version introuvable.' });
+      return;
+    }
+
+    response.json(version);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/documents/generate', async (request, response, next) => {
+  try {
+    const sessionContext = getSessionContext(request);
+    const agenceFilter = await resolveAgenceFilter(request.query.agence, sessionContext);
+    const collaborateurScope = await resolveCollaborateurScope(sessionContext);
+    const modeId = Number(request.body.modeleId);
+    const numeroVersion = Number(request.body.numeroVersion);
+    const scopeType = toNullableText(request.body.scopeType);
+    const scopeId = Number(request.body.scopeId);
+    const typeDocumentIdRaw = toNullableText(request.body.typeDocumentId);
+    const metadata = toJsonObject(request.body.variables) ?? {};
+
+    if (!Number.isFinite(modeId) || !Number.isFinite(numeroVersion) || !scopeType || !Number.isFinite(scopeId)) {
+      response.status(400).json({ message: 'modeleId, numeroVersion, scopeType et scopeId sont obligatoires.' });
+      return;
+    }
+
+    if (!ALLOWED_DOCUMENT_SCOPE_TYPES.has(scopeType)) {
+      response.status(400).json({ message: 'scopeType invalide.' });
+      return;
+    }
+
+    if (collaborateurScope.restrictToCollaborateur && collaborateurScope.collaborateurId === null) {
+      response.status(404).json({ message: 'Contexte metier introuvable.' });
+      return;
+    }
+
+    const version = await getModeleVersion(modeId, numeroVersion);
+    if (!version) {
+      response.status(404).json({ message: 'Version de modele introuvable.' });
+      return;
+    }
+
+    const scope = await resolveDocumentScope(scopeType, scopeId, agenceFilter, collaborateurScope.collaborateurId);
+    if (!scope) {
+      response.status(404).json({ message: 'Contexte de generation introuvable ou non autorise.' });
+      return;
+    }
+
+    const actorIdByEmail = await findCollaborateurIdByEmail(sessionContext.userEmail);
+    const actorId = actorIdByEmail ?? await findCollaborateurId(sessionContext.user);
+    const typeDocumentId = typeDocumentIdRaw && Number.isFinite(Number(typeDocumentIdRaw))
+      ? Number(typeDocumentIdRaw)
+      : null;
+
+    const fakePath = `/documents/generated/modele-${modeId}-v${numeroVersion}-${Date.now()}.json`;
+
+    const inserted = await query(
+      `
+        INSERT INTO document (
+          id_type_document,
+          id_dossier,
+          id_procedure,
+          id_instance,
+          auteur,
+          chemin_fichier,
+          date_creation,
+          id_modele,
+          numero_version_modele,
+          statut_document,
+          metadata_json
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8, 'brouillon', $9::jsonb)
+        RETURNING id
+      `,
+      [
+        typeDocumentId,
+        scope.dossierId,
+        scope.procedureId,
+        scope.instanceId,
+        actorId,
+        fakePath,
+        modeId,
+        numeroVersion,
+        JSON.stringify({
+          variables: metadata,
+          generatedFromVersion: version.contenuJson,
+          scope,
+        }),
+      ],
+    );
+
+    const row = await getDocumentById(inserted.rows[0].id);
+    response.status(201).json(row);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/documents/:id/status', async (request, response, next) => {
+  try {
+    const documentId = Number(request.params.id);
+    if (!Number.isFinite(documentId)) {
+      response.status(400).json({ message: 'ID document invalide.' });
+      return;
+    }
+
+    const nextStatus = toNullableText(request.body.statut);
+    if (!nextStatus) {
+      response.status(400).json({ message: 'statut est obligatoire.' });
+      return;
+    }
+
+    const sessionContext = getSessionContext(request);
+    const agenceFilter = await resolveAgenceFilter(request.query.agence, sessionContext);
+    const collaborateurScope = await resolveCollaborateurScope(sessionContext);
+
+    if (collaborateurScope.restrictToCollaborateur && collaborateurScope.collaborateurId === null) {
+      response.status(404).json({ message: 'Document introuvable.' });
+      return;
+    }
+
+    const accessCheck = await query(
+      `
+        SELECT doc.id
+        FROM document doc
+        LEFT JOIN dossier direct_dossier ON direct_dossier.id = doc.id_dossier
+        LEFT JOIN "procedure" doc_procedure ON doc_procedure.id = doc.id_procedure
+        LEFT JOIN dossier procedure_dossier ON procedure_dossier.id = doc_procedure.id_dossier
+        LEFT JOIN instance_juridique doc_instance ON doc_instance.id = doc.id_instance
+        LEFT JOIN "procedure" instance_procedure ON instance_procedure.id = doc_instance.id_procedure
+        LEFT JOIN dossier instance_dossier ON instance_dossier.id = instance_procedure.id_dossier
+        LEFT JOIN client c ON c.id = COALESCE(direct_dossier.id_client, procedure_dossier.id_client, instance_dossier.id_client)
+        LEFT JOIN agence a ON a.id = COALESCE(direct_dossier.id_agence, procedure_dossier.id_agence, instance_dossier.id_agence)
+        WHERE doc.id = $1
+          AND ($2::text IS NULL OR a.id::text = $2 OR lower(a.nom) = lower($2) OR lower(a.ville) = lower($2))
+          AND ($3::int IS NULL
+            OR c.id_collaborateur_responsable = $3
+            OR EXISTS (
+              SELECT 1
+              FROM affectation_dossier ad
+              WHERE ad.id_dossier = COALESCE(direct_dossier.id, procedure_dossier.id, instance_dossier.id)
+                AND ad.id_collaborateur = $3
+                AND (ad.date_fin IS NULL OR ad.date_fin >= CURRENT_DATE)
+            )
+            OR EXISTS (
+              SELECT 1
+              FROM affectation_procedure ap
+              WHERE ap.id_procedure = COALESCE(doc.id_procedure, doc_instance.id_procedure)
+                AND ap.id_collaborateur = $3
+                AND (ap.date_fin IS NULL OR ap.date_fin >= CURRENT_DATE)
+            ))
+        LIMIT 1
+      `,
+      [documentId, agenceFilter, collaborateurScope.collaborateurId],
+    );
+
+    if (!accessCheck.rows[0]) {
+      response.status(404).json({ message: 'Document introuvable.' });
+      return;
+    }
+
+    await query(
+      `
+        UPDATE document
+        SET statut_document = $2
+        WHERE id = $1
+      `,
+      [documentId, nextStatus],
+    );
+
+    const row = await getDocumentById(documentId);
+    response.json(row);
   } catch (error) {
     next(error);
   }

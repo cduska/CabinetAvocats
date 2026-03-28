@@ -4,7 +4,8 @@ import { useRoute } from 'vue-router';
 import DataTable from '../components/ui/DataTable.vue';
 import DrawerPanel from '../components/ui/DrawerPanel.vue';
 import { useAccessControl } from '../services/access';
-import { createDocument as createDocumentApi, getDocuments, getDossiers } from '../services/api';
+import { getStatusColorClass } from '../services/status';
+import { createDocument as createDocumentApi, getDocuments, getDossiers, updateDocumentStatus } from '../services/api';
 import { useSession } from '../services/session';
 import type { DocumentItem, Dossier } from '../types/domain';
 
@@ -14,9 +15,21 @@ const typeFilter = ref('all');
 const statusFilter = ref('all');
 const drawerOpen = ref(false);
 const dataSource = ref('');
+const isUpdatingStatus = ref(false);
 const { canPerformAction } = useAccessControl();
 const { state: sessionState } = useSession();
 const canCreateDocument = computed(() => canPerformAction('documents:create'));
+
+const workflowStatusOptions = [
+  'brouillon',
+  'initie',
+  'cree',
+  'en cours',
+  'en relecture',
+  'valide',
+  'archive',
+  'cloture',
+];
 
 const form = reactive({
   type: 'Note interne',
@@ -130,6 +143,27 @@ function openDrawer(): void {
 
   drawerOpen.value = true;
 }
+
+async function changeStatus(row: Record<string, unknown>, nextStatus: string): Promise<void> {
+  const id = typeof row.id === 'number' ? row.id : Number(row.id);
+  const currentStatus = typeof row.statut === 'string' ? row.statut : '';
+
+  if (!Number.isFinite(id) || id <= 0 || !nextStatus || currentStatus === nextStatus) {
+    return;
+  }
+
+  isUpdatingStatus.value = true;
+  try {
+    const updated = await updateDocumentStatus(id, { statut: nextStatus });
+    rows.value = rows.value.map((item) => (item.id === id ? { ...item, statut: updated.statut } : item));
+    dataSource.value = 'PostgreSQL local';
+  } catch {
+    dataSource.value = 'Erreur API';
+    await loadDocumentsFromApi();
+  } finally {
+    isUpdatingStatus.value = false;
+  }
+}
 </script>
 
 <template>
@@ -172,15 +206,18 @@ function openDrawer(): void {
         </label>
       </template>
 
-      <template #cell-statut="{ value }">
-        <span
-          :class="[
-            'status-pill',
-            value === 'Valide' || value === 'Archive' ? 'status-ok' : value === 'A relire' ? 'status-alert' : 'status-warn',
-          ]"
-        >
-          {{ value }}
-        </span>
+      <template #cell-statut="{ value, row }">
+        <div class="status-cell" @click.stop>
+          <span :class="['status-pill', getStatusColorClass(value)]">{{ value }}</span>
+          <select
+            class="select status-select"
+            :value="String(value ?? '')"
+            :disabled="isUpdatingStatus"
+            @change="changeStatus(row, ($event.target as HTMLSelectElement).value)"
+          >
+            <option v-for="status in workflowStatusOptions" :key="status" :value="status">{{ status }}</option>
+          </select>
+        </div>
       </template>
     </DataTable>
 
@@ -219,3 +256,17 @@ function openDrawer(): void {
     </DrawerPanel>
   </section>
 </template>
+
+<style scoped>
+.status-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.status-select {
+  min-width: 9.5rem;
+  font-size: 0.76rem;
+  padding: 0.12rem 0.3rem;
+}
+</style>

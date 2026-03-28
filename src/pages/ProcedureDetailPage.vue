@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { getProcedureById, getProcedureInstances, getStatutsProcedure, updateProcedure } from '../services/api';
+import { getStatusColorClass } from '../services/status';
 import type { ProcedureItem, ProcedureInstance, StatutDossier } from '../types/domain';
 
 const route = useRoute();
@@ -30,20 +31,6 @@ const form = reactive({
 
 function normalizeText(value: unknown): string {
   return String(value ?? '').trim().toLowerCase();
-}
-
-function getStatusColorClass(status: string): 'status-ok' | 'status-warn' | 'status-alert' {
-  const normalizedStatus = normalizeText(status);
-
-  if (['cloture', 'terminee', 'valide', 'archive', 'active'].includes(normalizedStatus)) {
-    return 'status-ok';
-  }
-
-  if (['urgent', 'a relire', 'en retard', 'suspendue'].includes(normalizedStatus)) {
-    return 'status-alert';
-  }
-
-  return 'status-warn';
 }
 
 const procedureStatusClass = computed(() => getStatusColorClass(form.statut || procedure.value?.statut || ''));

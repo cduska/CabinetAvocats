@@ -228,6 +228,10 @@ CREATE TABLE document (
    id_procedure INT REFERENCES procedure(id), 
    id_instance INT REFERENCES instance_juridique(id), 
    auteur INT REFERENCES collaborateur(id), 
+   id_modele INT, 
+   numero_version_modele INT, 
+   statut_document VARCHAR(50) DEFAULT 'brouillon', 
+   metadata_json JSONB, 
    chemin_fichier TEXT, 
    date_creation TIMESTAMP, 
    CHECK ( 
@@ -245,6 +249,11 @@ CREATE TABLE modele_document (
    contenu_json JSONB, 
    CHECK (contenu_json IS NULL OR jsonb_typeof(contenu_json) = 'object') 
 ); 
+
+ALTER TABLE document
+   ADD CONSTRAINT fk_document_modele
+   FOREIGN KEY (id_modele)
+   REFERENCES modele_document(id);
  
 CREATE INDEX idx_modele_document_json 
 ON modele_document 
@@ -359,6 +368,10 @@ CREATE INDEX idx_document_id_dossier ON document(id_dossier);
 CREATE INDEX idx_document_id_procedure ON document(id_procedure); 
 CREATE INDEX idx_document_id_instance ON document(id_instance); 
 CREATE INDEX idx_document_auteur ON document(auteur); 
+CREATE INDEX idx_document_id_modele ON document(id_modele); 
+CREATE INDEX idx_document_modele_version ON document(id_modele, numero_version_modele); 
+CREATE INDEX idx_document_statut_document ON document(statut_document); 
+CREATE INDEX idx_document_metadata_json ON document USING GIN (metadata_json); 
  
 -- MODELES 
 CREATE INDEX idx_modele_id_type_document ON modele_document(id_type_document); 

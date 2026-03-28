@@ -1,9 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import pg from 'pg';
-import dotenv from 'dotenv';
-
-dotenv.config();
+import { getPgClientConfig, getPgTargetLabel } from '../server/db-config.js';
 
 const inputPath = process.argv[2];
 
@@ -15,29 +13,9 @@ if (!inputPath) {
 const sqlPath = path.resolve(process.cwd(), inputPath);
 const sql = await fs.readFile(sqlPath, 'utf8');
 
-const host = String(process.env.PGHOST || '127.0.0.1');
-const port = Number(process.env.PGPORT || 5432);
-const user = String(process.env.PGUSER || 'postgres');
-const password = String(process.env.PGPASSWORD ?? 'postgres');
-const database = String(process.env.PGDATABASE || 'postgres');
-const connectionString = process.env.DATABASE_URL?.trim() || '';
-
 const { Client } = pg;
-const client = new Client(
-  connectionString
-    ? {
-        connectionString,
-      }
-    : {
-        host,
-        port,
-        user,
-        password,
-        database,
-      },
-);
-
-const target = connectionString ? 'DATABASE_URL' : `${database}@${host}:${port}`;
+const client = new Client(getPgClientConfig());
+const target = getPgTargetLabel();
 
 try {
   await client.connect();

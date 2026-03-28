@@ -4,13 +4,16 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "npm run dev:full",
+    "dev:web": "vite",
     "dev:api": "npm run api:dev",
-    "dev:full": "concurrently -k -n api,web -c blue,green \"npm:api:dev\" \"npm:dev\"",
-    "dev:ci": "concurrently -k -n api,web -c blue,green \"npm:api:start\" \"npm:dev\"",
+    "dev:full": "concurrently -k -n api,web -c blue,green \"npm:api:dev\" \"npm:dev:web\"",
+    "dev:web:ci": "vite --port 5173 --strictPort",
+    "dev:ci": "concurrently --kill-others-on-fail -n api,web -c blue,green \"npm:api:start\" \"npm:dev:web:ci\"",
     "api:dev": "node --watch server/index.js",
     "api:start": "node server/index.js",
     "db:seed": "npm run db:seed:quick",
+    "db:wait": "node scripts/wait-for-pg.mjs",
     "db:seed:minimal": "node scripts/run-sql-file.mjs peuplement_minimal.sql",
     "db:seed:quick": "node scripts/run-sql-file.mjs peuplement_rapide.sql",
     "db:seed:massive": "node scripts/run-sql-file.mjs peuplement_massif.sql",
@@ -32,7 +35,6 @@
     "cypress": "^15.12.0",
     "typescript": "~5.9.3",
     "vite": "^8.0.0",
-    "vue-tsc": "^3.2.5",
-    "wait-on": "^9.0.4"
+    "vue-tsc": "^3.2.5"
   }
 }

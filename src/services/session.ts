@@ -7,6 +7,8 @@ export type SessionMetier = (typeof SESSION_METIERS)[number];
 
 export interface SessionAgency {
   id: string;
+  name: string;
+  city: string;
   label: string;
 }
 
@@ -36,11 +38,28 @@ type UserFixture = readonly [
 
 type PersistedSessionState = Partial<SessionState>;
 
-const agencies: SessionAgency[] = [
-  { id: 'paris', label: 'Paris' },
-  { id: 'lyon', label: 'Lyon' },
-  { id: 'nantes', label: 'Nantes' },
+type AgencyFixture = readonly [id: string, name: string, city: string];
+
+const agencyFixtures: readonly AgencyFixture[] = [
+  ['paris', 'Agence Paris Centre', 'Paris'],
+  ['lyon', 'Agence Lyon Presqu ile', 'Lyon'],
+  ['nantes', 'Agence Nantes Atlantique', 'Nantes'],
 ];
+
+const agencies: SessionAgency[] = agencyFixtures
+  .map(([id, name, city]) => ({
+    id,
+    name,
+    city,
+    label: `${name} (${city})`,
+  }))
+  .sort((left, right) => {
+    const byCity = left.city.localeCompare(right.city, 'fr', { sensitivity: 'base' });
+    if (byCity !== 0) {
+      return byCity;
+    }
+    return left.name.localeCompare(right.name, 'fr', { sensitivity: 'base' });
+  });
 
 const userFixtures: readonly UserFixture[] = [
   ['u-claire-martin', 'Claire', 'Martin', 'Associee', 'paris', 'user1@cabinet.fr'],
@@ -128,7 +147,7 @@ function getUsersForSelection(agencyId: string, metier: SessionMetier): SessionU
 function buildInitialState(): SessionState {
   const persisted = readPersistedState();
 
-  const fallbackAgencyId = agencies[0]?.id ?? '';
+  const fallbackAgencyId = agencies.find((agency) => agency.id === 'paris')?.id ?? agencies[0]?.id ?? '';
   const requestedAgencyId = persisted?.agencyId ?? fallbackAgencyId;
   const agencyId = isKnownAgency(requestedAgencyId) ? requestedAgencyId : fallbackAgencyId;
 
@@ -152,7 +171,7 @@ function buildInitialState(): SessionState {
 const state = reactive<SessionState>(buildInitialState());
 
 function normalizeState(): void {
-  const fallbackAgencyId = agencies[0]?.id ?? '';
+  const fallbackAgencyId = agencies.find((agency) => agency.id === 'paris')?.id ?? agencies[0]?.id ?? '';
 
   if (!isKnownAgency(state.agencyId)) {
     state.agencyId = fallbackAgencyId;

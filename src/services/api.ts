@@ -6,4 +6,5 @@ export * from './api/dossiersApi';
 export * from './api/proceduresApi';
 export * from './api/audiencesApi';
 export * from './api/documentsApi';
+export * from './api/modelesApi';
 export * from './api/referenceApi';

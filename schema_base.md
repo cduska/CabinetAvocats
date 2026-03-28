@@ -166,6 +166,10 @@ id_dossier	INT	FK	Dossier
 id_procedure	INT	FK	Procédure
 id_instance	INT	FK	Instance
 auteur	INT	FK	Collaborateur
+id_modele	INT	FK	Modèle source
+numero_version_modele	INT		Version publiée utilisée
+statut_document	VARCHAR(50)	DEFAULT brouillon	Statut workflow
+metadata_json	JSONB		Variables et méta génération
 chemin_fichier	TEXT		Chemin
 date_creation	TIMESTAMP		Date
 ## Table : modele_document

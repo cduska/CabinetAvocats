@@ -29,6 +29,12 @@ push / pull_request → main
 │publish-image │  │deploy_fly│
 │  (GHCR)      │  │ (Fly.io) │
 └──────────────┘  └────────┘
+              │
+              ▼
+         ┌──────────────┐
+         │ deploy_pages │
+         │(GitHub Pages)│
+         └──────────────┘
            │
      ┌─────▼─────┐
      │  notify   │  ← rapport email (toujours, succès ou échec)
@@ -45,7 +51,8 @@ push / pull_request → main
 | `sonar` | `build` | push + PR | Analyse qualité SonarCloud + Quality Gate |
 | `cypress-run` | `build` | push + PR | Tests E2E Cypress Cloud (Chrome, record, parallel x2) |
 | `publish-image` | `build`, `sonar`, `cypress-run` | push main uniquement | Build + push image Docker vers GHCR |
-| `deploy_fly` | `build`, `sonar`, `cypress-run` | push main uniquement | Déploiement applicatif sur Fly.io (`flyctl deploy`) |
+| `deploy_fly` | `build`, `sonar`, `cypress-run` | push main uniquement + secret Fly | Déploiement applicatif sur Fly.io (`flyctl deploy`) |
+| `deploy_pages` | `build`, `sonar`, `cypress-run` | push main uniquement | Build front + publication GitHub Pages |
 | `notify` | tous les jobs ci-dessus | toujours (succès ou échec) | Envoi email de compte rendu |
 
 > `publish-image` et `deploy_fly` sont bloqués si `build` ou `cypress-run` échouent. `sonar` peut être ignoré (skipped) si `SONAR_TOKEN` n'est pas configuré — dans ce cas les deux jobs déploient quand même.
@@ -74,6 +81,7 @@ push / pull_request → main
 ### `cypress-run`
 - Exécution en matrice sur 2 conteneurs (`containers: [1, 2]`)
 - Démarre un service PostgreSQL éphémère (`postgres:16`)
+- Attend la disponibilité PostgreSQL via `npm run db:wait` (script Node interne)
 - Initialise la base de test (`schema_complet.sql` + `peuplement_minimal.sql`)
 - Démarre l'API + le front (`npm run dev:ci`)
 - Attend que le front (`5173`) et l'API (`8787/healthz`) répondent (timeout 180 s)
@@ -86,13 +94,25 @@ push / pull_request → main
 - Tag + push `ghcr.io/cduska/cabinet-avocats:latest`
 
 ### `deploy_fly`
+- Exécution uniquement si le secret `FLY_API_TOKEN` est configuré
 - Setup de `flyctl` via `superfly/flyctl-actions/setup-flyctl`
 - Vérification du secret `FLY_API_TOKEN`
 - Résolution du nom d'app Fly via la clé `app` de `fly.toml`
 - Si l'app n'existe pas, création automatique via `flyctl apps create <app_name>`
 - Si la création échoue faute de facturation Fly active, le job signale un avertissement et ignore le déploiement sans casser la CI
+- Synchronisation des secrets Fly avant déploiement:
+     - `DATABASE_URL` depuis `NEON_DATABASE_URL_PROD`
+     - `CORS_ALLOWED_ORIGINS` vers `https://<owner>.github.io`
 - Déploiement de l'image avec `flyctl deploy --remote-only --config fly.toml --app <app_name>`
 - Le conteneur Node sert à la fois l'API Express et le front `dist/`
+
+### `deploy_pages`
+- Build du front via `npm run build`
+- Activation de `VITE_USE_NEON_DATA_API=true`
+- Injection de `VITE_NEON_DATA_API_URL` depuis le secret `VITE_NEON_DATA_API_URL_PROD`
+- Publication du dossier `dist/` avec `actions/deploy-pages`
+- La base Vite est automatiquement adaptée à `/<repo>/` en GitHub Actions
+- Le front en prod consomme Neon Data API directement (JWT Neon Auth requis)
 
 ### `db-migrate-fly.yml` (manuel)
 - Déclenchement manuel via **Actions → Fly DB Maintenance → Run workflow**
@@ -119,7 +139,7 @@ push / pull_request → main
 
 | Secret | Obligatoire | Description |
 |--------|-------------|-------------|
-| `FLY_API_TOKEN` | Oui (pour `deploy_fly` et `db-migrate-fly.yml`) | Token d'authentification Fly.io pour `flyctl deploy` et maintenance DB |
+| `FLY_API_TOKEN` | Optionnel (pour `deploy_fly` et `db-migrate-fly.yml`) | Token d'authentification Fly.io pour `flyctl deploy` et maintenance DB |
 | `SONAR_TOKEN` | Recommandé | Token d'analyse SonarCloud (généré dans Compte → Sécurité) |
 | `CYPRESS_RECORD_KEY` | Pour Cypress Cloud | Clé d'enregistrement Cypress Cloud |
 | `MAIL_SERVER` | Pour notify | Serveur SMTP (ex. `smtp.gmail.com`) |
@@ -127,6 +147,13 @@ push / pull_request → main
 | `MAIL_USERNAME` | Pour notify | Adresse email expéditeur |
 | `MAIL_PASSWORD` | Pour notify | Mot de passe ou App Password |
 | `MAIL_TO` | Pour notify | Adresse email destinataire |
+| `VITE_NEON_DATA_API_URL_PROD` | Oui (pour `deploy_pages`) | URL Neon Data API prod (ex: `https://<host>.apirest.<region>.aws.neon.tech/neondb/rest/v1`) |
+| `NEON_DATABASE_URL_PROD` | Optionnel (pour `deploy_fly`) | Chaine de connexion Neon prod injectee dans Fly (`DATABASE_URL`) |
+
+Variables serveur recommandées (Fly):
+
+- `DATABASE_URL`: connexion Neon prod
+- `CORS_ALLOWED_ORIGINS`: origines autorisées (CSV), ex: `https://cduska.github.io`
 
 > Pour Gmail : activer la validation en 2 étapes puis générer un **App Password** dans Compte Google → Sécurité → Mots de passe des applications.
 

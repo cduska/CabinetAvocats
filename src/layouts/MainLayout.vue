@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
 import { getFirstAccessibleRoute, isRouteName, useAccessControl, type AppRouteName } from '../services/access';
+import { getNeonAuthToken, isNeonDataApiEnabled } from '../services/api/utils';
 import { useSession } from '../services/session';
 
 interface NavigationItem {
@@ -32,13 +33,44 @@ const navigation: NavigationItem[] = [
   { label: 'Dashboard', path: '/dashboard', icon: 'DB', routeName: 'dashboard' },
   { label: 'Clients', path: '/clients', icon: 'CL', routeName: 'clients' },
   { label: 'Dossiers', path: '/dossiers', icon: 'DS', routeName: 'dossiers' },
-  { label: 'Procedures', path: '/procedures', icon: 'PR', routeName: 'procedures' },
+  { label: 'Modeles', path: '/modeles', icon: 'MD', routeName: 'modeles' },
   { label: 'Documents', path: '/documents', icon: 'DC', routeName: 'documents' },
+  { label: 'Neon Auth', path: '/neon-auth', icon: 'NA', routeName: 'neon-auth' },
   { label: 'Schema', path: '/schema', icon: 'SC', routeName: 'schema' },
 ];
 
 const pageTitle = computed(() => String(route.meta.title ?? 'Dashboard'));
 const visibleNavigation = computed(() => navigation.filter((item) => canAccessRoute(item.routeName)));
+const todayLabel = computed(() => new Intl.DateTimeFormat('fr-FR', {
+  weekday: 'long',
+  day: '2-digit',
+  month: 'long',
+  year: 'numeric',
+}).format(new Date()));
+const greetingLabel = computed(() => {
+  const firstName = currentUser.value?.firstName || 'Equipe';
+  const hour = new Date().getHours();
+
+  if (hour < 12) {
+    return `Bonjour ${firstName}`;
+  }
+
+  if (hour < 18) {
+    return `Bon apres-midi ${firstName}`;
+  }
+
+  return `Bonsoir ${firstName}`;
+});
+const userInitials = computed(() => {
+  const first = (currentUser.value?.firstName ?? '').trim().charAt(0).toUpperCase();
+  const last = (currentUser.value?.lastName ?? '').trim().charAt(0).toUpperCase();
+  return `${first}${last}` || 'CA';
+});
+const agencyLabel = computed(() => {
+  return currentAgency.value?.name || 'Cabinet Avocats';
+});
+const isNeonMode = computed(() => isNeonDataApiEnabled());
+const neonTokenAvailable = computed(() => Boolean(getNeonAuthToken().trim()));
 const activeSessionLabel = computed(() => {
   if (!currentUser.value || !currentAgency.value) {
     return 'Aucune session active';
@@ -120,10 +152,26 @@ function onUserChange(event: Event): void {
 
     <div class="workspace">
       <header class="topbar">
-        <div>
-          <p class="topbar-kicker">Intranet de gestion</p>
+        <div class="topbar-identity">
+          <div class="topbar-signature">
+            <div class="topbar-signature-main">
+              <span class="topbar-signature-mark">CA</span>
+              <p class="topbar-signature-agency">{{ agencyLabel }}</p>
+            </div>
+            <span class="topbar-user-avatar" :title="activeSessionLabel">{{ userInitials }}</span>
+          </div>
+          <p class="topbar-kicker">{{ greetingLabel }}</p>
           <h1>{{ pageTitle }}</h1>
+          <p class="topbar-date">{{ todayLabel }}</p>
           <p class="topbar-session" data-cy="active-session">Session: {{ activeSessionLabel }}</p>
+          <div class="topbar-badges">
+            <span class="topbar-badge" :class="isNeonMode ? 'is-neon' : 'is-local'">
+              {{ isNeonMode ? 'Mode Neon Data API' : 'Mode API locale' }}
+            </span>
+            <span v-if="isNeonMode" class="topbar-badge" :class="neonTokenAvailable ? 'is-ready' : 'is-missing'">
+              {{ neonTokenAvailable ? 'Token Neon present' : 'Token Neon manquant' }}
+            </span>
+          </div>
         </div>
 
         <div class="topbar-actions">

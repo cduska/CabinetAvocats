@@ -58,14 +58,57 @@ export interface ProcedureInstance {
   fin?: string;
 }
 
+export interface ProcedureHistoryItem {
+  id: number;
+  action: string;
+  actor: string;
+  at: string;
+  details: string;
+}
+
 export interface DocumentItem {
   id: number;
   type: string;
   dossierReference?: string;
   procedureId?: number;
+  instanceId?: number;
   auteur: string;
   dateCreation: string;
   statut: string;
+  modeleId?: number;
+  modeleVersion?: number;
+}
+
+export interface ModeleDocumentItem {
+  id: number;
+  typeDocumentId: number;
+  typeDocumentLabel: string;
+  nomModele: string;
+  description: string;
+  latestVersion: number;
+  latestVersionCreatedAt: string;
+  published: boolean;
+}
+
+export interface ModeleDocumentDetail {
+  id: number;
+  typeDocumentId: number;
+  typeDocumentLabel: string;
+  nomModele: string;
+  description: string;
+  contenuJson: Record<string, unknown>;
+  sousDomaines: number[];
+  paragraphes: Array<{ id: number; ordre: number; contenu: string }>;
+  latestVersion?: ModeleDocumentVersion | null;
+}
+
+export interface ModeleDocumentVersion {
+  id: number;
+  modeleId: number;
+  numeroVersion: number;
+  contenuJson: Record<string, unknown>;
+  creeLe: string;
+  creePar?: number | null;
 }
 
 export interface Collaborateur {
@@ -104,6 +147,26 @@ export interface StatutDossier {
 }
 
 export interface TypeDossier {
+  id: number;
+  libelle: string;
+}
+
+export interface TypeProcedure {
+  id: number;
+  libelle: string;
+}
+
+export interface TypeDocument {
+  id: number;
+  libelle: string;
+}
+
+export interface TypeInstance {
+  id: number;
+  libelle: string;
+}
+
+export interface StatutInstance {
   id: number;
   libelle: string;
 }

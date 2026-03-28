@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router';
 import DataTable from '../components/ui/DataTable.vue';
 import DrawerPanel from '../components/ui/DrawerPanel.vue';
 import { useAccessControl } from '../services/access';
+import { getStatusColorClass } from '../services/status';
 import { createDossier as createDossierApi, getAgences, getClients, getDossiers, getStatutsDossier, getTypesDossier } from '../services/api';
 import { useSession } from '../services/session';
 import type { Dossier, Client, StatutDossier, TypeDossier, Agence } from '../types/domain';
@@ -47,6 +48,22 @@ const clients = ref<Client[]>([]);
 
 const agencies = computed(() => ['all', ...new Set(rows.value.map((item) => item.agence))]);
 const statuses = computed(() => ['all', ...new Set(rows.value.map((item) => item.statut))]);
+
+const allowedCreateAgences = computed(() => {
+  if (sessionState.metier !== 'Collaborateur') {
+    return agences.value;
+  }
+
+  const sessionAgency = normalizeText(sessionState.agencyId);
+  const scopedAgences = agences.value.filter((agence) => {
+    const normalizedNom = normalizeText(agence.nom);
+    return normalizedNom === sessionAgency || normalizedNom.includes(sessionAgency);
+  });
+
+  return scopedAgences.length > 0 ? scopedAgences : agences.value;
+});
+
+const isAgenceLockedForCreate = computed(() => sessionState.metier === 'Collaborateur' && allowedCreateAgences.value.length <= 1);
 
 const isActivePreset = computed(() => String(route.query.preset ?? '').toLowerCase() === 'active');
 
@@ -117,6 +134,13 @@ function resetForm(): void {
   form.ouverture = new Date().toISOString().slice(0, 10);
   form.echeance = '';
   form.montant = 0;
+
+  const defaultAgence = allowedCreateAgences.value[0]?.id ?? null;
+  form.agence = defaultAgence;
+
+  if (form.statut === null) {
+    form.statut = statuts.value[0]?.id ?? null;
+  }
   step.value = 1;
 }
 
@@ -223,12 +247,7 @@ async function createDossier(): Promise<void> {
       </template>
 
       <template #cell-statut="{ value }">
-        <span
-          :class="[
-            'status-pill',
-            value === 'Cloture' ? 'status-ok' : value === 'Urgent' ? 'status-alert' : 'status-warn',
-          ]"
-        >
+        <span :class="['status-pill', getStatusColorClass(value)]">
           {{ value }}
         </span>
       </template>
@@ -281,10 +300,13 @@ async function createDossier(): Promise<void> {
           </label>
           <label>
             Agence
-            <select v-model="form.agence" class="input" required>
+            <select v-model="form.agence" class="input" required :disabled="isAgenceLockedForCreate">
               <option value="" disabled>Choisir une agence</option>
-              <option v-for="a in agences" :key="a.id" :value="a.id">{{ a.nom }}</option>
+              <option v-for="a in allowedCreateAgences" :key="a.id" :value="a.id">{{ a.nom }}</option>
             </select>
+            <p v-if="isAgenceLockedForCreate" class="action-bar-caption">
+              Agence preselectionnee selon les droits du collaborateur.
+            </p>
           </label>
           <label>
             Date echeance

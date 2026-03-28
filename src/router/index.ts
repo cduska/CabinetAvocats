@@ -4,8 +4,9 @@ import DashboardPage from '../pages/DashboardPage.vue';
 import ClientsPage from '../pages/ClientsPage.vue';
 import DossiersPage from '../pages/DossiersPage.vue';
 import DocumentsPage from '../pages/DocumentsPage.vue';
-import ProceduresPage from '../pages/ProceduresPage.vue';
+import ModelesPage from '../pages/ModelesPage.vue';
 import AudiencesPage from '../pages/AudiencesPage.vue';
+import NeonAuthPage from '../pages/NeonAuthPage.vue';
 import SchemaPage from '../pages/SchemaPage.vue';
 import { getFirstAccessibleRoute, isRouteName, routeAccessMatrix } from '../services/access';
 import { getCurrentMetier } from '../services/session';
@@ -56,21 +57,21 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
-        path: '/procedures',
-        name: 'procedures',
-        component: ProceduresPage,
-        meta: {
-          title: 'Procedures',
-          allowedMetiers: routeAccessMatrix.procedures,
-        },
-      },
-      {
         path: '/audiences',
         name: 'audiences',
         component: AudiencesPage,
         meta: {
           title: 'Audiences',
           allowedMetiers: routeAccessMatrix.audiences,
+        },
+      },
+      {
+        path: '/modeles',
+        name: 'modeles',
+        component: ModelesPage,
+        meta: {
+          title: 'Modeles',
+          allowedMetiers: routeAccessMatrix.modeles,
         },
       },
       {
@@ -89,6 +90,15 @@ const routes: RouteRecordRaw[] = [
         meta: {
           title: 'Documents',
           allowedMetiers: routeAccessMatrix.documents,
+        },
+      },
+      {
+        path: '/neon-auth',
+        name: 'neon-auth',
+        component: NeonAuthPage,
+        meta: {
+          title: 'Neon Auth',
+          allowedMetiers: routeAccessMatrix['neon-auth'],
         },
       },
       {
