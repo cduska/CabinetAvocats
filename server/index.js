@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { query, testConnection } from './db.js';
+import { extractBearerToken, validateNeonToken } from './neon-jwt.js';
 
 dotenv.config();
 
@@ -63,6 +64,22 @@ app.get('/healthz', async (request, response) => {
   } catch (error) {
     response.status(503).json({ ok: false, message: error.message });
   }
+});
+
+app.get('/api/auth/verify-token', async (request, response) => {
+  const token = extractBearerToken(request.get('authorization'));
+  if (!token) {
+    response.status(400).json({ valid: false, message: 'Authorization Bearer token manquant.' });
+    return;
+  }
+
+  const payload = await validateNeonToken(token);
+  if (!payload) {
+    response.status(401).json({ valid: false, message: 'Token invalide.' });
+    return;
+  }
+
+  response.json({ valid: true, payload });
 });
 
 function toNullableText(value) {

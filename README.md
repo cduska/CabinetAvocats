@@ -201,10 +201,14 @@ Comportement environnement:
 Secrets GitHub requis:
 
 - `VITE_NEON_DATA_API_URL_PROD`: URL Neon Data API prod (ex: `https://<host>.apirest.<region>.aws.neon.tech/neondb/rest/v1`)
+- `VITE_NEON_AUTH_URL_PROD`: URL Neon Auth prod (ex: `https://<project>-<branch>.neon-auth.app`)
 
 ### JWT Neon Auth (mode front direct)
 
-En mode Neon Data API, le front doit envoyer un JWT Neon Auth.
+En mode Neon Data API, le front en production recupere automatiquement le JWT via le SDK Neon Auth:
+
+- methode principale: `authClient.token()`
+- fallback: lecture de l'entete `set-auth-jwt` via `authClient.getSession(...)`
 
 Pour un test rapide local, stockez le token dans le navigateur:
 
@@ -213,6 +217,18 @@ localStorage.setItem('cabinet.neon.jwt', '<votre_jwt_neon_auth>')
 ```
 
 Le front lira automatiquement cette cle.
+
+Variables Vite utiles:
+
+- `VITE_NEON_AUTH_URL`: URL de base Neon Auth
+- `VITE_NEON_AUTO_JWT=true`: active la recuperation automatique de JWT
+- `VITE_NEON_AUTH_BEARER`: fallback statique si vous voulez forcer un token
+
+Validation JWT cote serveur (optionnelle):
+
+- definir `NEON_AUTH_BASE_URL`
+- appeler `GET /api/auth/verify-token` avec `Authorization: Bearer <token>`
+- la verification utilise la JWKS publique: `<NEON_AUTH_BASE_URL>/.well-known/jwks.json`
 
 ## Analyse des librairies utilisees
 

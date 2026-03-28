@@ -6,7 +6,6 @@ import DossiersPage from '../pages/DossiersPage.vue';
 import DocumentsPage from '../pages/DocumentsPage.vue';
 import ModelesPage from '../pages/ModelesPage.vue';
 import AudiencesPage from '../pages/AudiencesPage.vue';
-import NeonAuthPage from '../pages/NeonAuthPage.vue';
 import SchemaPage from '../pages/SchemaPage.vue';
 import { getFirstAccessibleRoute, isRouteName, routeAccessMatrix } from '../services/access';
 import { getCurrentMetier } from '../services/session';
@@ -90,15 +89,6 @@ const routes: RouteRecordRaw[] = [
         meta: {
           title: 'Documents',
           allowedMetiers: routeAccessMatrix.documents,
-        },
-      },
-      {
-        path: '/neon-auth',
-        name: 'neon-auth',
-        component: NeonAuthPage,
-        meta: {
-          title: 'Neon Auth',
-          allowedMetiers: routeAccessMatrix['neon-auth'],
         },
       },
       {

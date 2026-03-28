@@ -90,7 +90,9 @@ push / pull_request -> main
 ### `deploy_pages`
 - Build du front via `npm run build`
 - Active `VITE_USE_NEON_DATA_API=true`
-- Injecte `VITE_NEON_DATA_API_URL` depuis le secret `VITE_NEON_DATA_API_URL_PROD`
+- Active `VITE_NEON_AUTO_JWT=true`
+- Injecte `VITE_NEON_DATA_API_URL` depuis `VITE_NEON_DATA_API_URL_PROD`
+- Injecte `VITE_NEON_AUTH_URL` depuis `VITE_NEON_AUTH_URL_PROD`
 - Publie `dist/` avec `actions/deploy-pages`
 - Le front en prod consomme Neon Data API directement (JWT Neon Auth requis)
 
@@ -115,6 +117,7 @@ push / pull_request -> main
 | `MAIL_PASSWORD` | Pour notify | Mot de passe ou App Password |
 | `MAIL_TO` | Pour notify | Adresse email destinataire |
 | `VITE_NEON_DATA_API_URL_PROD` | Oui (pour `deploy_pages`) | URL Neon Data API prod |
+| `VITE_NEON_AUTH_URL_PROD` | Oui (pour `deploy_pages`) | URL Neon Auth prod |
 
 `GITHUB_TOKEN` est fourni automatiquement par GitHub Actions.
 

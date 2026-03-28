@@ -35,7 +35,6 @@ const navigation: NavigationItem[] = [
   { label: 'Dossiers', path: '/dossiers', icon: 'DS', routeName: 'dossiers' },
   { label: 'Modeles', path: '/modeles', icon: 'MD', routeName: 'modeles' },
   { label: 'Documents', path: '/documents', icon: 'DC', routeName: 'documents' },
-  { label: 'Neon Auth', path: '/neon-auth', icon: 'NA', routeName: 'neon-auth' },
   { label: 'Schema', path: '/schema', icon: 'SC', routeName: 'schema' },
 ];
 

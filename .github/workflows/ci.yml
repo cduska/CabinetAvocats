@@ -195,7 +195,9 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && always() && needs.build.result == 'success' && needs.cypress-run.result == 'success' && (needs.sonar.result == 'success' || needs.sonar.result == 'skipped')
     env:
       VITE_USE_NEON_DATA_API: 'true'
+      VITE_NEON_AUTO_JWT: 'true'
       VITE_NEON_DATA_API_URL: ${{ secrets['VITE_NEON_DATA_API_URL_PROD'] }}
+      VITE_NEON_AUTH_URL: ${{ secrets['VITE_NEON_AUTH_URL_PROD'] }}
     steps:
       - uses: actions/checkout@v4
       - name: Use Node.js
@@ -208,6 +210,10 @@ jobs:
         run: |
           if [ -z "$VITE_NEON_DATA_API_URL" ]; then
             echo "Missing secret VITE_NEON_DATA_API_URL_PROD"
+            exit 1
+          fi
+          if [ -z "$VITE_NEON_AUTH_URL" ]; then
+            echo "Missing secret VITE_NEON_AUTH_URL_PROD"
             exit 1
           fi
       - name: Build frontend for GitHub Pages

@@ -9,7 +9,6 @@ export type AppRouteName =
   | 'audiences'
   | 'modeles'
   | 'documents'
-  | 'neon-auth'
   | 'schema';
 
 export type AppAction =
@@ -29,7 +28,6 @@ export const routeAccessMatrix: Record<AppRouteName, readonly SessionMetier[]> =
   audiences: ['Associee', 'Collaborateur', 'Juriste', 'Assistante'],
   modeles: ['Associee', 'Collaborateur', 'Juriste'],
   documents: ['Associee', 'Collaborateur', 'Juriste', 'Assistante'],
-  'neon-auth': ['Associee', 'Collaborateur', 'Juriste', 'Assistante'],
   schema: ['Associee', 'Collaborateur'],
 };
 
@@ -42,7 +40,7 @@ const actionAccessMatrix: Record<AppAction, readonly SessionMetier[]> = {
   'procedures:plan': ['Associee', 'Collaborateur', 'Juriste'],
 };
 
-const routePriority: AppRouteName[] = ['dashboard', 'clients', 'dossiers', 'audiences', 'modeles', 'documents', 'neon-auth', 'schema'];
+const routePriority: AppRouteName[] = ['dashboard', 'clients', 'dossiers', 'audiences', 'modeles', 'documents', 'schema'];
 
 export function isRouteName(value: unknown): value is AppRouteName {
   return typeof value === 'string' && value in routeAccessMatrix;

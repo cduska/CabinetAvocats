@@ -1,4 +1,5 @@
 import { getSessionHeaders } from '../session';
+import { fetchJwtFromNeonSdk } from '../neonAuth';
 
 const NEON_TOKEN_STORAGE_KEYS = [
   'cabinet.neon.jwt',
@@ -7,6 +8,8 @@ const NEON_TOKEN_STORAGE_KEYS = [
   'neon_auth_token',
   'auth_token',
 ];
+
+let neonTokenFetchPromise: Promise<string> | null = null;
 
 function getApiBaseUrl(): string {
   const raw = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
@@ -69,6 +72,19 @@ export function getNeonAuthToken(): string {
   return String(import.meta.env.VITE_NEON_AUTH_BEARER ?? '').trim();
 }
 
+function isNeonAutoTokenEnabled(): boolean {
+  const override = String(import.meta.env.VITE_NEON_AUTO_JWT ?? '').trim().toLowerCase();
+  if (override === 'false' || override === '0' || override === 'no') {
+    return false;
+  }
+
+  if (override === 'true' || override === '1' || override === 'yes') {
+    return true;
+  }
+
+  return import.meta.env.PROD;
+}
+
 export function setNeonAuthToken(token: string): void {
   const normalized = token.trim();
   if (!normalized || globalThis.window === undefined) {
@@ -89,6 +105,45 @@ export function clearNeonAuthToken(): void {
   }
 }
 
+export async function ensureNeonAuthToken(): Promise<string> {
+  const existing = getNeonAuthToken();
+  if (existing) {
+    return existing;
+  }
+
+  if (!isNeonDataApiEnabled() || !isNeonAutoTokenEnabled()) {
+    return '';
+  }
+
+  if (!neonTokenFetchPromise) {
+    neonTokenFetchPromise = fetchJwtFromNeonSdk()
+      .then((token) => {
+        const normalized = token.trim();
+        if (normalized) {
+          setNeonAuthToken(normalized);
+        }
+        return normalized;
+      })
+      .finally(() => {
+        neonTokenFetchPromise = null;
+      });
+  }
+
+  return neonTokenFetchPromise;
+}
+
+export async function bootstrapNeonAuthToken(): Promise<void> {
+  if (!isNeonDataApiEnabled() || !isNeonAutoTokenEnabled()) {
+    return;
+  }
+
+  try {
+    await ensureNeonAuthToken();
+  } catch {
+    // Keep startup resilient; requests will still surface explicit auth errors if token is missing.
+  }
+}
+
 function resolveNeonResourceUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) {
     return path;
@@ -106,9 +161,9 @@ function resolveNeonResourceUrl(path: string): string {
 export async function requestNeonRest<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
 
-  const token = getNeonAuthToken();
+  const token = (await ensureNeonAuthToken()) || getNeonAuthToken();
   if (!token) {
-    throw new Error('JWT Neon Auth introuvable. Ajoutez-le en localStorage (cle cabinet.neon.jwt) ou via VITE_NEON_AUTH_BEARER.');
+    throw new Error('JWT Neon Auth introuvable. Connectez-vous via Neon Auth ou configurez VITE_NEON_AUTH_BEARER.');
   }
 
   if (!headers.has('Authorization')) {
@@ -140,9 +195,9 @@ export async function requestNeonRest<T>(path: string, init?: RequestInit): Prom
 
 export async function requestNeonCount(path: string): Promise<number> {
   const headers = new Headers();
-  const token = getNeonAuthToken();
+  const token = (await ensureNeonAuthToken()) || getNeonAuthToken();
   if (!token) {
-    throw new Error('JWT Neon Auth introuvable. Ajoutez-le en localStorage (cle cabinet.neon.jwt) ou via VITE_NEON_AUTH_BEARER.');
+    throw new Error('JWT Neon Auth introuvable. Connectez-vous via Neon Auth ou configurez VITE_NEON_AUTH_BEARER.');
   }
 
   headers.set('Authorization', `Bearer ${token}`);
