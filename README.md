@@ -202,16 +202,6 @@ Secrets GitHub requis:
 
 - `VITE_NEON_DATA_API_URL_PROD`: URL Neon Data API prod (ex: `https://<host>.apirest.<region>.aws.neon.tech/neondb/rest/v1`)
 
-Secrets optionnels (uniquement si vous utilisez Fly.io):
-
-- `FLY_API_TOKEN`: token Fly.io pour deployer l'API
-- `NEON_DATABASE_URL_PROD`: chaine de connexion Neon prod (injectee dans Fly en `DATABASE_URL`)
-
-Variables backend recommandees (Fly):
-
-- `DATABASE_URL`: chaine de connexion Neon prod
-- `CORS_ALLOWED_ORIGINS`: liste optionnelle d'origines autorisees separees par virgule
-
 ### JWT Neon Auth (mode front direct)
 
 En mode Neon Data API, le front doit envoyer un JWT Neon Auth.
