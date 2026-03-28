@@ -2174,6 +2174,14 @@ app.get('/api/documents', async (request, response, next) => {
 app.post('/api/documents', async (request, response, next) => {
   try {
     const sessionContext = getSessionContext(request);
+    const agenceFilter = await resolveAgenceFilter(request.query.agence, sessionContext);
+    const collaborateurScope = await resolveCollaborateurScope(sessionContext);
+
+    if (collaborateurScope.restrictToCollaborateur && collaborateurScope.collaborateurId === null) {
+      response.status(404).json({ message: 'Aucun dossier accessible pour creer un document.' });
+      return;
+    }
+
     const typeId = await findOrCreateLabelId('type_document', request.body.type ?? 'Document');
     const dossierIdentifier = toNullableText(request.body.dossierReference);
     const auteurName = toNullableText(request.body.auteur) ?? sessionContext.user;
@@ -2194,6 +2202,45 @@ app.post('/api/documents', async (request, response, next) => {
         [dossierIdentifier],
       );
       dossierId = dossier.rows[0]?.id ?? null;
+    }
+
+    if (dossierId === null) {
+      const fallbackDossier = await query(
+        `
+          SELECT d.id
+          FROM dossier d
+          LEFT JOIN client c ON c.id = d.id_client
+          LEFT JOIN agence a ON a.id = d.id_agence
+          WHERE ($1::text IS NULL OR a.id::text = $1 OR lower(a.nom) = lower($1) OR lower(a.ville) = lower($1))
+            AND ($2::int IS NULL
+              OR c.id_collaborateur_responsable = $2
+              OR EXISTS (
+                SELECT 1
+                FROM affectation_dossier ad
+                WHERE ad.id_dossier = d.id
+                  AND ad.id_collaborateur = $2
+                  AND (ad.date_fin IS NULL OR ad.date_fin >= CURRENT_DATE)
+              )
+              OR EXISTS (
+                SELECT 1
+                FROM affectation_procedure ap
+                INNER JOIN "procedure" p ON p.id = ap.id_procedure
+                WHERE p.id_dossier = d.id
+                  AND ap.id_collaborateur = $2
+                  AND (ap.date_fin IS NULL OR ap.date_fin >= CURRENT_DATE)
+              ))
+          ORDER BY d.id DESC
+          LIMIT 1
+        `,
+        [agenceFilter, collaborateurScope.collaborateurId],
+      );
+
+      dossierId = fallbackDossier.rows[0]?.id ?? null;
+    }
+
+    if (dossierId === null) {
+      response.status(400).json({ message: 'Aucun dossier disponible pour creer un document.' });
+      return;
     }
 
     const inserted = await query(

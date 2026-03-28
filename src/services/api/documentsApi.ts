@@ -119,6 +119,29 @@ async function findDossierId(identifier?: string): Promise<number | null> {
   return byReference[0]?.id ?? null;
 }
 
+async function findFallbackDossierId(): Promise<number | null> {
+  const rows = await requestNeonRest<Array<{
+    id: number;
+    agence?: { nom?: string | null; ville?: string | null } | null;
+  }>>('/dossier?select=id,agence(nom,ville)&order=id.desc&limit=200');
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const agency = String(getSessionAgency() ?? '').trim().toLowerCase();
+  if (!agency) {
+    return rows[0].id;
+  }
+
+  const match = rows.find((row) => {
+    const label = `${row.agence?.nom ?? ''} ${row.agence?.ville ?? ''}`.toLowerCase();
+    return label.includes(agency);
+  });
+
+  return match?.id ?? rows[0].id;
+}
+
 async function findAuteurId(auteur: string): Promise<number | null> {
   const normalized = auteur.trim().toLowerCase();
   if (!normalized) {
@@ -175,11 +198,16 @@ export async function createDocument(payload: {
   statut?: string;
 }) {
   if (isNeonDataApiEnabled()) {
-    const [typeId, dossierId, auteurId] = await Promise.all([
+    const [typeId, dossierIdRaw, auteurId] = await Promise.all([
       findTypeDocumentId(payload.type),
       findDossierId(payload.dossierReference),
       findAuteurId(payload.auteur),
     ]);
+    const dossierId = dossierIdRaw ?? await findFallbackDossierId();
+
+    if (!dossierId) {
+      throw new Error('Aucun dossier disponible pour creer un document.');
+    }
 
     const inserted = await requestNeonRest<Array<{ id: number }>>('/document', {
       method: 'POST',
