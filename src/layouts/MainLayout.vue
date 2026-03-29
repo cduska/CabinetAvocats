@@ -10,6 +10,7 @@ import {
   isNeonDataApiEnabled,
   onNeonAuthTokenChange,
 } from '../services/api/utils';
+import { getNeonAuthSessionState } from '../services/neonAuth';
 import { useSession } from '../services/session';
 
 interface NavigationItem {
@@ -85,6 +86,22 @@ function refreshNeonTokenState(): void {
 }
 
 const neonTokenAvailable = computed(() => Boolean(neonTokenValue.value));
+const neonAuthSessionState = ref<'active' | 'inactive' | 'unavailable'>('unavailable');
+
+async function refreshNeonAuthSessionState(): Promise<void> {
+  neonAuthSessionState.value = await getNeonAuthSessionState();
+}
+
+const neonAuthSessionLabel = computed(() => {
+  if (neonAuthSessionState.value === 'active') {
+    return 'oui';
+  }
+  if (neonAuthSessionState.value === 'inactive') {
+    return 'non';
+  }
+  return 'indisponible';
+});
+
 const neonTokenSourceLabel = computed(() => {
   const source = neonTokenSource.value;
   if (source === 'localStorage') {
@@ -113,8 +130,10 @@ let removeNeonTokenListener: (() => void) | null = null;
 
 onMounted(() => {
   refreshNeonTokenState();
+  void refreshNeonAuthSessionState();
   removeNeonTokenListener = onNeonAuthTokenChange(() => {
     refreshNeonTokenState();
+    void refreshNeonAuthSessionState();
   });
 });
 
@@ -222,6 +241,7 @@ function onUserChange(event: Event): void {
             </p>
             <p>Data API: {{ neonDataApiUrlLabel }}</p>
             <p>Neon Auth: {{ neonAuthUrlLabel }}</p>
+            <p>Session Neon Auth: {{ neonAuthSessionLabel }}</p>
             <p>Session active: {{ neonSessionReady ? 'oui' : 'non' }}</p>
             <p>Source token: {{ neonTokenSourceLabel }}</p>
           </div>

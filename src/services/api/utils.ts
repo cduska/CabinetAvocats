@@ -52,6 +52,24 @@ function readBrowserStorageToken(keys: string[]): string {
   return '';
 }
 
+function normalizeNeonAuthUrl(raw: string): string {
+  const trimmed = String(raw ?? '').trim().replace(/\/$/, '');
+  if (!trimmed) {
+    return '';
+  }
+
+  const lowered = trimmed.toLowerCase();
+  if (lowered.endsWith('/neondb/auth')) {
+    return trimmed.slice(0, -('/neondb/auth'.length));
+  }
+
+  if (lowered.endsWith('/auth') && lowered.includes('.neonauth.')) {
+    return trimmed.slice(0, -('/auth'.length));
+  }
+
+  return trimmed;
+}
+
 function notifyNeonTokenChanged(): void {
   if (globalThis.window === undefined) {
     return;
@@ -90,7 +108,7 @@ export function getNeonDataApiBaseUrl(): string {
 }
 
 export function getNeonAuthBaseUrl(): string {
-  return String(import.meta.env.VITE_NEON_AUTH_URL ?? '').trim().replace(/\/$/, '');
+  return normalizeNeonAuthUrl(String(import.meta.env.VITE_NEON_AUTH_URL ?? ''));
 }
 
 export function getNeonAuthTokenSource(): 'localStorage' | 'sessionStorage' | 'env' | 'missing' {

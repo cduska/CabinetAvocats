@@ -2,8 +2,26 @@ import { createAuthClient } from '@neondatabase/neon-js/auth';
 
 let neonAuthClient: ReturnType<typeof createAuthClient> | null = null;
 
+function normalizeNeonAuthUrl(raw: string): string {
+  const trimmed = String(raw ?? '').trim().replace(/\/$/, '');
+  if (!trimmed) {
+    return '';
+  }
+
+  const lowered = trimmed.toLowerCase();
+  if (lowered.endsWith('/neondb/auth')) {
+    return trimmed.slice(0, -('/neondb/auth'.length));
+  }
+
+  if (lowered.endsWith('/auth') && lowered.includes('.neonauth.')) {
+    return trimmed.slice(0, -('/auth'.length));
+  }
+
+  return trimmed;
+}
+
 function getNeonAuthUrl(): string {
-  return String(import.meta.env.VITE_NEON_AUTH_URL ?? '').trim().replace(/\/$/, '');
+  return normalizeNeonAuthUrl(String(import.meta.env.VITE_NEON_AUTH_URL ?? ''));
 }
 
 function canUseNeonAuthSdk(): boolean {
@@ -21,6 +39,21 @@ export function getNeonAuthClient(): ReturnType<typeof createAuthClient> | null 
 
   neonAuthClient = createAuthClient(getNeonAuthUrl());
   return neonAuthClient;
+}
+
+export async function getNeonAuthSessionState(): Promise<'active' | 'inactive' | 'unavailable'> {
+  const authClient = getNeonAuthClient() as any;
+  if (!authClient || typeof authClient.getSession !== 'function') {
+    return 'unavailable';
+  }
+
+  try {
+    const sessionResponse = await authClient.getSession();
+    const hasSession = Boolean(sessionResponse?.data?.session ?? sessionResponse?.data);
+    return hasSession ? 'active' : 'inactive';
+  } catch {
+    return 'inactive';
+  }
 }
 
 export async function fetchJwtFromNeonSdk(): Promise<string> {
