@@ -312,6 +312,27 @@ label {
   margin-top: 0.3rem;
 }
 
+.topbar-neon-diagnostics {
+  display: grid;
+  gap: 0.1rem;
+  margin-top: 0.35rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px dashed var(--border-color);
+  border-radius: 10px;
+  background: rgba(16, 185, 129, 0.08);
+  color: var(--text-muted);
+  font-size: 0.73rem;
+}
+
+.topbar-neon-diagnostics p {
+  margin: 0;
+}
+
+[data-theme='dark'] .topbar-neon-diagnostics {
+  background: rgba(16, 185, 129, 0.14);
+  border-color: rgba(110, 231, 183, 0.3);
+}
+
 .topbar-badge {
   display: inline-flex;
   align-items: center;

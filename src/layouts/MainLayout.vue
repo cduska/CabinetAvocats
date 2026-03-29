@@ -1,8 +1,15 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
 import { getFirstAccessibleRoute, isRouteName, useAccessControl, type AppRouteName } from '../services/access';
-import { getNeonAuthToken, isNeonDataApiEnabled } from '../services/api/utils';
+import {
+  getNeonAuthBaseUrl,
+  getNeonAuthToken,
+  getNeonAuthTokenSource,
+  getNeonDataApiBaseUrl,
+  isNeonDataApiEnabled,
+  onNeonAuthTokenChange,
+} from '../services/api/utils';
 import { useSession } from '../services/session';
 
 interface NavigationItem {
@@ -69,13 +76,51 @@ const agencyLabel = computed(() => {
   return currentAgency.value?.name || 'Cabinet Avocats';
 });
 const isNeonMode = computed(() => isNeonDataApiEnabled());
-const neonTokenAvailable = computed(() => Boolean(getNeonAuthToken().trim()));
+const neonTokenValue = ref(getNeonAuthToken().trim());
+const neonTokenSource = ref(getNeonAuthTokenSource());
+
+function refreshNeonTokenState(): void {
+  neonTokenValue.value = getNeonAuthToken().trim();
+  neonTokenSource.value = getNeonAuthTokenSource();
+}
+
+const neonTokenAvailable = computed(() => Boolean(neonTokenValue.value));
+const neonTokenSourceLabel = computed(() => {
+  const source = neonTokenSource.value;
+  if (source === 'localStorage') {
+    return 'localStorage';
+  }
+  if (source === 'sessionStorage') {
+    return 'sessionStorage';
+  }
+  if (source === 'env') {
+    return 'variable VITE_NEON_AUTH_BEARER';
+  }
+  return 'aucune source detectee';
+});
+const neonDataApiUrlLabel = computed(() => getNeonDataApiBaseUrl() || 'non configuree');
+const neonAuthUrlLabel = computed(() => getNeonAuthBaseUrl() || 'non configuree');
+const neonSessionReady = computed(() => Boolean(currentUser.value && currentAgency.value));
 const activeSessionLabel = computed(() => {
   if (!currentUser.value || !currentAgency.value) {
     return 'Aucune session active';
   }
 
   return `${currentUser.value.firstName} ${currentUser.value.lastName} - ${currentUser.value.metier} (${currentAgency.value.label})`;
+});
+
+let removeNeonTokenListener: (() => void) | null = null;
+
+onMounted(() => {
+  refreshNeonTokenState();
+  removeNeonTokenListener = onNeonAuthTokenChange(() => {
+    refreshNeonTokenState();
+  });
+});
+
+onBeforeUnmount(() => {
+  removeNeonTokenListener?.();
+  removeNeonTokenListener = null;
 });
 
 watch(
@@ -170,6 +215,15 @@ function onUserChange(event: Event): void {
             <span v-if="isNeonMode" class="topbar-badge" :class="neonTokenAvailable ? 'is-ready' : 'is-missing'">
               {{ neonTokenAvailable ? 'Token Neon present' : 'Token Neon manquant' }}
             </span>
+          </div>
+          <div v-if="isNeonMode" class="topbar-neon-diagnostics" data-cy="neon-diagnostics">
+            <p>
+              <strong>Diagnostic Neon</strong>
+            </p>
+            <p>Data API: {{ neonDataApiUrlLabel }}</p>
+            <p>Neon Auth: {{ neonAuthUrlLabel }}</p>
+            <p>Session active: {{ neonSessionReady ? 'oui' : 'non' }}</p>
+            <p>Source token: {{ neonTokenSourceLabel }}</p>
           </div>
         </div>
 

@@ -8,6 +8,7 @@ const NEON_TOKEN_STORAGE_KEYS = [
   'neon_auth_token',
   'auth_token',
 ];
+const NEON_TOKEN_EVENT = 'cabinet:neon-token-changed';
 
 let neonTokenFetchPromise: Promise<string> | null = null;
 let neonTokenLastMissAt = 0;
@@ -51,6 +52,29 @@ function readBrowserStorageToken(keys: string[]): string {
   return '';
 }
 
+function notifyNeonTokenChanged(): void {
+  if (globalThis.window === undefined) {
+    return;
+  }
+
+  globalThis.window.dispatchEvent(new CustomEvent(NEON_TOKEN_EVENT));
+}
+
+export function onNeonAuthTokenChange(listener: () => void): () => void {
+  if (globalThis.window === undefined) {
+    return () => undefined;
+  }
+
+  const handler = () => listener();
+  globalThis.window.addEventListener(NEON_TOKEN_EVENT, handler);
+  globalThis.window.addEventListener('storage', handler);
+
+  return () => {
+    globalThis.window?.removeEventListener(NEON_TOKEN_EVENT, handler);
+    globalThis.window?.removeEventListener('storage', handler);
+  };
+}
+
 export function isNeonDataApiEnabled(): boolean {
   return String(import.meta.env.VITE_USE_NEON_DATA_API ?? '').toLowerCase() === 'true';
 }
@@ -63,6 +87,29 @@ export function getNeonDataApiBaseUrl(): string {
 
   const fallback = String(import.meta.env.VITE_API_BASE_URL ?? '').trim();
   return fallback.replace(/\/$/, '');
+}
+
+export function getNeonAuthBaseUrl(): string {
+  return String(import.meta.env.VITE_NEON_AUTH_URL ?? '').trim().replace(/\/$/, '');
+}
+
+export function getNeonAuthTokenSource(): 'localStorage' | 'sessionStorage' | 'env' | 'missing' {
+  if (globalThis.window !== undefined) {
+    for (const key of NEON_TOKEN_STORAGE_KEYS) {
+      const localValue = (globalThis.window.localStorage.getItem(key) ?? '').trim();
+      if (localValue) {
+        return 'localStorage';
+      }
+
+      const sessionValue = (globalThis.window.sessionStorage.getItem(key) ?? '').trim();
+      if (sessionValue) {
+        return 'sessionStorage';
+      }
+    }
+  }
+
+  const envToken = String(import.meta.env.VITE_NEON_AUTH_BEARER ?? '').trim();
+  return envToken ? 'env' : 'missing';
 }
 
 export function getNeonAuthToken(): string {
@@ -94,6 +141,7 @@ export function setNeonAuthToken(token: string): void {
   }
 
   globalThis.window.localStorage.setItem(NEON_TOKEN_STORAGE_KEYS[0], normalized);
+  notifyNeonTokenChanged();
 }
 
 export function clearNeonAuthToken(): void {
@@ -105,6 +153,8 @@ export function clearNeonAuthToken(): void {
     globalThis.window.localStorage.removeItem(key);
     globalThis.window.sessionStorage.removeItem(key);
   }
+
+  notifyNeonTokenChanged();
 }
 
 export async function ensureNeonAuthToken(): Promise<string> {
