@@ -10,27 +10,27 @@
 -- Sans GRANT explicite, toute requete via la Data API renvoie HTTP 403
 -- "permission denied for table ...".
 --
--- Ce fichier doit etre execute UNE SEULE FOIS sur la base Neon prod,
--- par example via la console SQL de Neon ou `psql`.
+-- Ce fichier a ete execute directement via MCP Neon le 2026-03-29.
+-- Il peut etre rejoue sans risque (idempotent sur les GRANT).
+-- ------------------------------------------------------------------
+-- Roles Neon provisiones par la Data API :
+--   - authenticated : role JWT pour les utilisateurs connectes ET tokens anonymes
+--   - anonymous     : role fallback sans JWT (pas "anon" comme dans PostgREST vanilla)
+--   - authenticator : role de connexion PostgREST (besoin de USAGE schema)
 -- ------------------------------------------------------------------
 
 -- 1. Acces au schema
-GRANT USAGE ON SCHEMA public TO authenticated;
-GRANT USAGE ON SCHEMA public TO anon;
+GRANT USAGE ON SCHEMA public TO authenticated, anonymous, authenticator;
 
 -- 2. SELECT sur toutes les tables existantes
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO authenticated;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO authenticated, anonymous;
 
 -- 3. Usage des sequences (utile pour les RETURNING id)
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated, anonymous;
 
 -- 4. Privileges par defaut pour les futures tables
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
-  GRANT SELECT ON TABLES TO authenticated;
+  GRANT SELECT ON TABLES TO authenticated, anonymous;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
-  GRANT SELECT ON TABLES TO anon;
-
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-  GRANT USAGE, SELECT ON SEQUENCES TO authenticated;
+  GRANT USAGE, SELECT ON SEQUENCES TO authenticated, anonymous;
