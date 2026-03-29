@@ -1,6 +1,11 @@
-import { createAuthClient } from '@neondatabase/neon-js/auth';
+import { createInternalNeonAuth } from '@neondatabase/neon-js/auth';
 
-let neonAuthClient: ReturnType<typeof createAuthClient> | null = null;
+// Full NeonAuth instance: exposes both the Better Auth adapter and getJWTToken().
+// allowAnonymous: true → if no authenticated session exists, falls back to a
+// Neon-issued anonymous JWT (GET /token/anonymous) so the Data API still works
+// without requiring the user to click a login button.
+type NeonAuthInstance = ReturnType<typeof createInternalNeonAuth>;
+let neonAuth: NeonAuthInstance | null = null;
 
 function normalizeNeonAuthUrl(raw: string): string {
   const trimmed = String(raw ?? '').trim().replace(/\/$/, '');
@@ -28,64 +33,21 @@ function canUseNeonAuthSdk(): boolean {
   return globalThis.window !== undefined && getNeonAuthUrl().length > 0;
 }
 
-export function getNeonAuthClient(): ReturnType<typeof createAuthClient> | null {
+function getNeonAuthInstance(): NeonAuthInstance | null {
   if (!canUseNeonAuthSdk()) {
     return null;
   }
 
-  if (neonAuthClient) {
-    return neonAuthClient;
+  if (neonAuth) {
+    return neonAuth;
   }
 
-  neonAuthClient = createAuthClient(getNeonAuthUrl());
-  return neonAuthClient;
+  neonAuth = createInternalNeonAuth(getNeonAuthUrl(), { allowAnonymous: true });
+  return neonAuth;
 }
 
-async function wakeNeonAuthCompute(): Promise<void> {
-  const url = getNeonAuthUrl();
-  if (!url) {
-    return;
-  }
-
-  try {
-    // Fire a cheap OPTIONS request to wake the Neon compute before starting OAuth.
-    // Neon serverless computes autosuspend and need ~1-2s to resume; this avoids
-    // a pg connection timeout inside the auth server during the OAuth callback.
-    await fetch(`${url}/api/auth/ok`, { method: 'GET', signal: AbortSignal.timeout(8000) });
-  } catch {
-    // Ignore — the compute may not expose this path; the wake attempt alone is enough.
-  }
-}
-
-export async function startNeonAuthSocialSignIn(provider: 'google' | 'github'): Promise<void> {
-  const authClient = getNeonAuthClient() as any;
-  if (!authClient) {
-    throw new Error('Neon Auth indisponible. Verifiez VITE_NEON_AUTH_URL.');
-  }
-
-  await wakeNeonAuthCompute();
-
-  const callbackUrl = globalThis.window
-    ? new URL(import.meta.env.BASE_URL || '/', globalThis.window.location.origin).toString()
-    : undefined;
-  const socialOptions = {
-    provider,
-    callbackURL: callbackUrl,
-    errorCallbackURL: callbackUrl,
-    disableRedirect: false,
-  };
-
-  if (typeof authClient.signInSocial === 'function') {
-    await authClient.signInSocial(socialOptions);
-    return;
-  }
-
-  if (typeof authClient.signIn?.social === 'function') {
-    await authClient.signIn.social(socialOptions);
-    return;
-  }
-
-  throw new Error('Le SDK Neon Auth ne fournit pas de methode signIn social dans cette version.');
+export function getNeonAuthClient(): NeonAuthInstance['adapter'] | null {
+  return getNeonAuthInstance()?.adapter ?? null;
 }
 
 export async function getNeonAuthSessionState(): Promise<'active' | 'inactive' | 'unavailable'> {
@@ -104,46 +66,17 @@ export async function getNeonAuthSessionState(): Promise<'active' | 'inactive' |
 }
 
 export async function fetchJwtFromNeonSdk(): Promise<string> {
-  const authClient = getNeonAuthClient() as any;
-  if (!authClient) {
+  const instance = getNeonAuthInstance();
+  if (!instance) {
     return '';
   }
 
-  // First, inspect session state. Without an authenticated session, /auth/token is expected to return 401.
-  if (typeof authClient.getSession === 'function') {
-    let headerToken = '';
-
-    const sessionResponse = await authClient.getSession({
-      fetchOptions: {
-        onSuccess: (ctx: any) => {
-          const token = ctx?.response?.headers?.get?.('set-auth-jwt');
-          headerToken = String(token ?? '').trim();
-        },
-      },
-    });
-
-    if (headerToken) {
-      return headerToken;
-    }
-
-    const hasSession = Boolean(sessionResponse?.data?.session ?? sessionResponse?.data);
-    if (!hasSession) {
-      return '';
-    }
+  try {
+    // getJWTToken() tries the authenticated session first, then falls back to
+    // the anonymous token endpoint (GET /token/anonymous) when allowAnonymous=true.
+    const token = await instance.getJWTToken();
+    return String(token ?? '').trim();
+  } catch {
+    return '';
   }
-
-  // Preferred flow from Neon docs: use authClient.token() to retrieve a raw JWT.
-  if (typeof authClient.token === 'function') {
-    const tokenResponse = await authClient.token();
-    const token = String(tokenResponse?.data?.token ?? '').trim();
-    if (token) {
-      return token;
-    }
-
-    if (tokenResponse?.error) {
-      throw tokenResponse.error;
-    }
-  }
-
-  return '';
 }
