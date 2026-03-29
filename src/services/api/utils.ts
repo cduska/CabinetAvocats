@@ -115,19 +115,21 @@ export async function ensureNeonAuthToken(): Promise<string> {
     return '';
   }
 
-  if (!neonTokenFetchPromise) {
-    neonTokenFetchPromise = fetchJwtFromNeonSdk()
-      .then((token) => {
-        const normalized = token.trim();
-        if (normalized) {
-          setNeonAuthToken(normalized);
-        }
-        return normalized;
-      })
-      .finally(() => {
-        neonTokenFetchPromise = null;
-      });
-  }
+  neonTokenFetchPromise ??= fetchJwtFromNeonSdk()
+    .then((token) => {
+      const normalized = token.trim();
+      if (normalized) {
+        setNeonAuthToken(normalized);
+      }
+      return normalized;
+    })
+    .catch(() => {
+      // Do not block API calls when Neon Auth SDK cannot provide a token yet.
+      return '';
+    })
+    .finally(() => {
+      neonTokenFetchPromise = null;
+    });
 
   return neonTokenFetchPromise;
 }
@@ -162,11 +164,7 @@ export async function requestNeonRest<T>(path: string, init?: RequestInit): Prom
   const headers = new Headers(init?.headers);
 
   const token = (await ensureNeonAuthToken()) || getNeonAuthToken();
-  if (!token) {
-    throw new Error('JWT Neon Auth introuvable. Connectez-vous via Neon Auth ou configurez VITE_NEON_AUTH_BEARER.');
-  }
-
-  if (!headers.has('Authorization')) {
+  if (token && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`);
   }
   if (!headers.has('Content-Type')) {
@@ -183,6 +181,10 @@ export async function requestNeonRest<T>(path: string, init?: RequestInit): Prom
 
   if (!response.ok) {
     const message = await response.text();
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(message || 'Acces Neon refuse (401/403). Verifiez la configuration Neon Auth/Data API et la session JWT.');
+    }
+
     throw new Error(message || `Neon Data API request failed (${response.status})`);
   }
 
@@ -196,11 +198,10 @@ export async function requestNeonRest<T>(path: string, init?: RequestInit): Prom
 export async function requestNeonCount(path: string): Promise<number> {
   const headers = new Headers();
   const token = (await ensureNeonAuthToken()) || getNeonAuthToken();
-  if (!token) {
-    throw new Error('JWT Neon Auth introuvable. Connectez-vous via Neon Auth ou configurez VITE_NEON_AUTH_BEARER.');
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
   }
 
-  headers.set('Authorization', `Bearer ${token}`);
   headers.set('Prefer', 'count=exact');
 
   const response = await fetch(resolveNeonResourceUrl(path), {
@@ -210,6 +211,10 @@ export async function requestNeonCount(path: string): Promise<number> {
 
   if (!response.ok) {
     const message = await response.text();
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(message || 'Acces Neon refuse (401/403). Verifiez la configuration Neon Auth/Data API et la session JWT.');
+    }
+
     throw new Error(message || `Neon Data API count request failed (${response.status})`);
   }
 
