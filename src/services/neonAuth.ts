@@ -29,6 +29,29 @@ export async function fetchJwtFromNeonSdk(): Promise<string> {
     return '';
   }
 
+  // First, inspect session state. Without an authenticated session, /auth/token is expected to return 401.
+  if (typeof authClient.getSession === 'function') {
+    let headerToken = '';
+
+    const sessionResponse = await authClient.getSession({
+      fetchOptions: {
+        onSuccess: (ctx: any) => {
+          const token = ctx?.response?.headers?.get?.('set-auth-jwt');
+          headerToken = String(token ?? '').trim();
+        },
+      },
+    });
+
+    if (headerToken) {
+      return headerToken;
+    }
+
+    const hasSession = Boolean(sessionResponse?.data?.session ?? sessionResponse?.data);
+    if (!hasSession) {
+      return '';
+    }
+  }
+
   // Preferred flow from Neon docs: use authClient.token() to retrieve a raw JWT.
   if (typeof authClient.token === 'function') {
     const tokenResponse = await authClient.token();
@@ -40,22 +63,6 @@ export async function fetchJwtFromNeonSdk(): Promise<string> {
     if (tokenResponse?.error) {
       throw tokenResponse.error;
     }
-  }
-
-  // Fallback from Neon docs: read set-auth-jwt header returned by getSession().
-  if (typeof authClient.getSession === 'function') {
-    let headerToken = '';
-
-    await authClient.getSession({
-      fetchOptions: {
-        onSuccess: (ctx: any) => {
-          const token = ctx?.response?.headers?.get?.('set-auth-jwt');
-          headerToken = String(token ?? '').trim();
-        },
-      },
-    });
-
-    return headerToken;
   }
 
   return '';

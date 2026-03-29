@@ -10,6 +10,8 @@ const NEON_TOKEN_STORAGE_KEYS = [
 ];
 
 let neonTokenFetchPromise: Promise<string> | null = null;
+let neonTokenLastMissAt = 0;
+const NEON_TOKEN_RETRY_MS = 15000;
 
 function getApiBaseUrl(): string {
   const raw = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
@@ -115,16 +117,24 @@ export async function ensureNeonAuthToken(): Promise<string> {
     return '';
   }
 
+  if (Date.now() - neonTokenLastMissAt < NEON_TOKEN_RETRY_MS) {
+    return '';
+  }
+
   neonTokenFetchPromise ??= fetchJwtFromNeonSdk()
     .then((token) => {
       const normalized = token.trim();
       if (normalized) {
         setNeonAuthToken(normalized);
+        neonTokenLastMissAt = 0;
+      } else {
+        neonTokenLastMissAt = Date.now();
       }
       return normalized;
     })
     .catch(() => {
       // Do not block API calls when Neon Auth SDK cannot provide a token yet.
+      neonTokenLastMissAt = Date.now();
       return '';
     })
     .finally(() => {
