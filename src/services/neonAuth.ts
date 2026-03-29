@@ -47,15 +47,23 @@ export async function startNeonAuthSocialSignIn(provider: 'google' | 'github'): 
     throw new Error('Neon Auth indisponible. Verifiez VITE_NEON_AUTH_URL.');
   }
 
-  const callbackUrl = globalThis.window?.location?.href ?? undefined;
+  const callbackUrl = globalThis.window
+    ? new URL(import.meta.env.BASE_URL || '/', globalThis.window.location.origin).toString()
+    : undefined;
+  const socialOptions = {
+    provider,
+    callbackURL: callbackUrl,
+    errorCallbackURL: callbackUrl,
+    disableRedirect: false,
+  };
 
   if (typeof authClient.signInSocial === 'function') {
-    await authClient.signInSocial({ provider, callbackURL: callbackUrl });
+    await authClient.signInSocial(socialOptions);
     return;
   }
 
   if (typeof authClient.signIn?.social === 'function') {
-    await authClient.signIn.social({ provider, callbackURL: callbackUrl });
+    await authClient.signIn.social(socialOptions);
     return;
   }
 
