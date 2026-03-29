@@ -41,6 +41,27 @@ export function getNeonAuthClient(): ReturnType<typeof createAuthClient> | null 
   return neonAuthClient;
 }
 
+export async function startNeonAuthSocialSignIn(provider: 'google' | 'github'): Promise<void> {
+  const authClient = getNeonAuthClient() as any;
+  if (!authClient) {
+    throw new Error('Neon Auth indisponible. Verifiez VITE_NEON_AUTH_URL.');
+  }
+
+  const callbackUrl = globalThis.window?.location?.href ?? undefined;
+
+  if (typeof authClient.signInSocial === 'function') {
+    await authClient.signInSocial({ provider, callbackURL: callbackUrl });
+    return;
+  }
+
+  if (typeof authClient.signIn?.social === 'function') {
+    await authClient.signIn.social({ provider, callbackURL: callbackUrl });
+    return;
+  }
+
+  throw new Error('Le SDK Neon Auth ne fournit pas de methode signIn social dans cette version.');
+}
+
 export async function getNeonAuthSessionState(): Promise<'active' | 'inactive' | 'unavailable'> {
   const authClient = getNeonAuthClient() as any;
   if (!authClient || typeof authClient.getSession !== 'function') {

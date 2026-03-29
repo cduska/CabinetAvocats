@@ -328,9 +328,31 @@ label {
   margin: 0;
 }
 
+.neon-auth-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.15rem;
+}
+
+.neon-auth-actions .button {
+  min-height: 30px;
+  font-size: 0.72rem;
+  padding: 0.3rem 0.55rem;
+}
+
+.neon-auth-error {
+  color: #9f1239;
+  margin-top: 0.2rem;
+}
+
 [data-theme='dark'] .topbar-neon-diagnostics {
   background: rgba(16, 185, 129, 0.14);
   border-color: rgba(110, 231, 183, 0.3);
+}
+
+[data-theme='dark'] .neon-auth-error {
+  color: #fda4af;
 }
 
 .topbar-badge {

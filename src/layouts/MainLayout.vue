@@ -10,7 +10,7 @@ import {
   isNeonDataApiEnabled,
   onNeonAuthTokenChange,
 } from '../services/api/utils';
-import { getNeonAuthSessionState } from '../services/neonAuth';
+import { getNeonAuthSessionState, startNeonAuthSocialSignIn } from '../services/neonAuth';
 import { useSession } from '../services/session';
 
 interface NavigationItem {
@@ -87,9 +87,24 @@ function refreshNeonTokenState(): void {
 
 const neonTokenAvailable = computed(() => Boolean(neonTokenValue.value));
 const neonAuthSessionState = ref<'active' | 'inactive' | 'unavailable'>('unavailable');
+const neonAuthBusy = ref(false);
+const neonAuthActionError = ref('');
 
 async function refreshNeonAuthSessionState(): Promise<void> {
   neonAuthSessionState.value = await getNeonAuthSessionState();
+}
+
+async function connectNeonAuth(provider: 'google' | 'github'): Promise<void> {
+  neonAuthActionError.value = '';
+  neonAuthBusy.value = true;
+
+  try {
+    await startNeonAuthSocialSignIn(provider);
+  } catch (error) {
+    neonAuthActionError.value = error instanceof Error ? error.message : 'Connexion Neon Auth impossible.';
+  } finally {
+    neonAuthBusy.value = false;
+  }
 }
 
 const neonAuthSessionLabel = computed(() => {
@@ -244,6 +259,25 @@ function onUserChange(event: Event): void {
             <p>Session Neon Auth: {{ neonAuthSessionLabel }}</p>
             <p>Session active: {{ neonSessionReady ? 'oui' : 'non' }}</p>
             <p>Source token: {{ neonTokenSourceLabel }}</p>
+            <div v-if="neonAuthSessionState !== 'active'" class="neon-auth-actions">
+              <button
+                class="button button-secondary"
+                type="button"
+                :disabled="neonAuthBusy"
+                @click="connectNeonAuth('google')"
+              >
+                {{ neonAuthBusy ? 'Connexion...' : 'Connexion Neon (Google)' }}
+              </button>
+              <button
+                class="button button-secondary"
+                type="button"
+                :disabled="neonAuthBusy"
+                @click="connectNeonAuth('github')"
+              >
+                {{ neonAuthBusy ? 'Connexion...' : 'Connexion Neon (GitHub)' }}
+              </button>
+            </div>
+            <p v-if="neonAuthActionError" class="neon-auth-error">{{ neonAuthActionError }}</p>
           </div>
         </div>
 
