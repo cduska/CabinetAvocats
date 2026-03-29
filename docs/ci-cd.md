@@ -89,12 +89,14 @@ push / pull_request -> main
 
 ### `deploy_pages`
 - Build du front via `npm run build`
-- Active `VITE_USE_NEON_DATA_API=true`
-- Active `VITE_NEON_AUTO_JWT=true`
+- Active `VITE_USE_NEON_DATA_API=true` (toutes les API utilisent PostgREST au lieu du backend Express)
+- Active `VITE_NEON_AUTO_JWT=true` (JWT recupere automatiquement au chargement via `createInternalNeonAuth`)
 - Injecte `VITE_NEON_DATA_API_URL` depuis `VITE_NEON_DATA_API_URL_PROD`
-- Injecte `VITE_NEON_AUTH_URL` depuis `VITE_NEON_AUTH_URL_PROD`
+- Injecte `VITE_NEON_AUTH_URL` depuis `VITE_NEON_AUTH_URL_PROD` (**doit inclure `/neondb/auth`**)
 - Publie `dist/` avec `actions/deploy-pages`
-- Le front en prod consomme Neon Data API directement (JWT Neon Auth requis)
+- Le front en prod obtient un JWT anonyme automatiquement (aucun clic requis) et appelle Neon Data API directement
+
+> Voir [docs/neon-integration.md](neon-integration.md) pour le detail de l'architecture Neon.
 
 ### `notify`
 - Construit un resume HTML de tous les jobs

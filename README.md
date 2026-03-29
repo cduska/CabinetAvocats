@@ -205,30 +205,43 @@ Secrets GitHub requis:
 
 ### JWT Neon Auth (mode front direct)
 
-En mode Neon Data API, le front en production recupere automatiquement le JWT via le SDK Neon Auth:
+En mode Neon Data API, le front recupere automatiquement un JWT au chargement de la page via le SDK Neon (`@neondatabase/neon-js/auth`).
 
-- methode principale: `authClient.token()`
-- fallback: lecture de l'entete `set-auth-jwt` via `authClient.getSession(...)`
+Le SDK est initialise avec `createInternalNeonAuth(url, { allowAnonymous: true })`:
 
-Pour un test rapide local, stockez le token dans le navigateur:
+- si une session utilisateur existe → JWT authentifie (`role: authenticated`)
+- sinon → JWT anonyme via `GET /token/anonymous` (`role: authenticated`, sans identite)
+
+Ce JWT est stocke dans `localStorage['cabinet.neon.jwt']` et renouvele automatiquement.
+Aucun bouton de connexion n'est requis: les donnees sont accessibles en lecture des l'arrivee sur le site.
+
+**Important**: `VITE_NEON_AUTH_URL` doit inclure le chemin complet `/neondb/auth`
+(ex: `https://<host>.neonauth.eu-west-2.aws.neon.tech/neondb/auth`).
+Ne pas tronquer ce suffixe — le SDK en a besoin pour localiser les endpoints Better Auth.
+
+Pour un test rapide local, injectez un token manuellement:
 
 ```js
 localStorage.setItem('cabinet.neon.jwt', '<votre_jwt_neon_auth>')
 ```
 
-Le front lira automatiquement cette cle.
-
 Variables Vite utiles:
 
-- `VITE_NEON_AUTH_URL`: URL de base Neon Auth
-- `VITE_NEON_AUTO_JWT=true`: active la recuperation automatique de JWT
-- `VITE_NEON_AUTH_BEARER`: fallback statique si vous voulez forcer un token
+| Variable | Role |
+|---|---|
+| `VITE_NEON_AUTH_URL` | URL Neon Auth **avec** le chemin `/neondb/auth` |
+| `VITE_NEON_DATA_API_URL` | URL Neon Data API (PostgREST), ex: `https://<host>.apirest.../neondb/rest/v1` |
+| `VITE_USE_NEON_DATA_API=true` | Active le mode Data API (sinon appels vers le backend Express) |
+| `VITE_NEON_AUTO_JWT=true` | Active la recuperation automatique du JWT au demarrage |
+| `VITE_NEON_AUTH_BEARER` | Token statique (fallback dev, ecrase le flux SDK) |
 
-Validation JWT cote serveur (optionnelle):
+Validation JWT cote serveur (optionnelle, pour les routes Express):
 
-- definir `NEON_AUTH_BASE_URL`
-- appeler `GET /api/auth/verify-token` avec `Authorization: Bearer <token>`
+- definir `NEON_AUTH_BASE_URL` (serveur)
+- importer `validateNeonToken` depuis `server/neon-jwt.js`
 - la verification utilise la JWKS publique: `<NEON_AUTH_BASE_URL>/.well-known/jwks.json`
+
+> Pour plus de details sur l'implementation: [docs/neon-integration.md](docs/neon-integration.md)
 
 ## Analyse des librairies utilisees
 
