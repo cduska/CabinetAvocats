@@ -88,6 +88,7 @@ function refreshNeonTokenState(): void {
 const neonTokenAvailable = computed(() => Boolean(neonTokenValue.value));
 const neonAuthSessionState = ref<'active' | 'inactive' | 'unavailable'>('unavailable');
 const neonAuthBusy = ref(false);
+const neonAuthWaking = ref(false);
 const neonAuthActionError = ref('');
 
 async function refreshNeonAuthSessionState(): Promise<void> {
@@ -97,6 +98,11 @@ async function refreshNeonAuthSessionState(): Promise<void> {
 async function connectNeonAuth(provider: 'google' | 'github'): Promise<void> {
   neonAuthActionError.value = '';
   neonAuthBusy.value = true;
+  neonAuthWaking.value = true;
+
+  // Brief delay after wake-up request to give compute time to resume.
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  neonAuthWaking.value = false;
 
   try {
     await startNeonAuthSocialSignIn(provider);
@@ -104,6 +110,7 @@ async function connectNeonAuth(provider: 'google' | 'github'): Promise<void> {
     neonAuthActionError.value = error instanceof Error ? error.message : 'Connexion Neon Auth impossible.';
   } finally {
     neonAuthBusy.value = false;
+    neonAuthWaking.value = false;
   }
 }
 
@@ -266,7 +273,7 @@ function onUserChange(event: Event): void {
                 :disabled="neonAuthBusy"
                 @click="connectNeonAuth('google')"
               >
-                {{ neonAuthBusy ? 'Connexion...' : 'Connexion Neon (Google)' }}
+                {{ neonAuthWaking ? 'Réveil base...' : neonAuthBusy ? 'Connexion...' : 'Connexion Neon (Google)' }}
               </button>
               <button
                 class="button button-secondary"
@@ -274,7 +281,7 @@ function onUserChange(event: Event): void {
                 :disabled="neonAuthBusy"
                 @click="connectNeonAuth('github')"
               >
-                {{ neonAuthBusy ? 'Connexion...' : 'Connexion Neon (GitHub)' }}
+                {{ neonAuthWaking ? 'Réveil base...' : neonAuthBusy ? 'Connexion...' : 'Connexion Neon (GitHub)' }}
               </button>
             </div>
             <p v-if="neonAuthActionError" class="neon-auth-error">{{ neonAuthActionError }}</p>

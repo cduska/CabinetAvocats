@@ -41,11 +41,29 @@ export function getNeonAuthClient(): ReturnType<typeof createAuthClient> | null 
   return neonAuthClient;
 }
 
+async function wakeNeonAuthCompute(): Promise<void> {
+  const url = getNeonAuthUrl();
+  if (!url) {
+    return;
+  }
+
+  try {
+    // Fire a cheap OPTIONS request to wake the Neon compute before starting OAuth.
+    // Neon serverless computes autosuspend and need ~1-2s to resume; this avoids
+    // a pg connection timeout inside the auth server during the OAuth callback.
+    await fetch(`${url}/api/auth/ok`, { method: 'GET', signal: AbortSignal.timeout(8000) });
+  } catch {
+    // Ignore — the compute may not expose this path; the wake attempt alone is enough.
+  }
+}
+
 export async function startNeonAuthSocialSignIn(provider: 'google' | 'github'): Promise<void> {
   const authClient = getNeonAuthClient() as any;
   if (!authClient) {
     throw new Error('Neon Auth indisponible. Verifiez VITE_NEON_AUTH_URL.');
   }
+
+  await wakeNeonAuthCompute();
 
   const callbackUrl = globalThis.window
     ? new URL(import.meta.env.BASE_URL || '/', globalThis.window.location.origin).toString()
