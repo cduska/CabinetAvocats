@@ -47,12 +47,14 @@ async function hydrateDashboard() {
     documentRows.value = remoteDocuments;
     audienceRows.value = remoteAudiences;
     dataSource.value = 'PostgreSQL local';
-  } catch {
+  } catch (e) {
     metrics.value = [];
     dossierRows.value = [];
     documentRows.value = [];
     audienceRows.value = [];
-    dataSource.value = 'Erreur API';
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error('[Dashboard] Erreur hydrateDashboard:', msg, e);
+    dataSource.value = `Erreur API: ${msg.slice(0, 120)}`;
   }
 }
 
