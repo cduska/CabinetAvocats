@@ -11,7 +11,7 @@ function agencyFilterQuery(prefix: string): string {
     return '';
   }
 
-  return `&or=(${prefix}.nom.ilike.*${encodeURIComponent(agency)}*,${prefix}.ville.ilike.*${encodeURIComponent(agency)}*)`;
+  return `&${prefix}.or=(nom.ilike.*${encodeURIComponent(agency)}*,ville.ilike.*${encodeURIComponent(agency)}*)`;
 }
 
 async function getDashboardMetricsFromNeon(): Promise<DashboardMetric[]> {
