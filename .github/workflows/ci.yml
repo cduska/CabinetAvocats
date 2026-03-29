@@ -201,6 +201,7 @@ jobs:
       VITE_NEON_AUTO_JWT: 'true'
       VITE_NEON_DATA_API_URL: ${{ secrets['VITE_NEON_DATA_API_URL_PROD'] }}
       VITE_NEON_AUTH_URL: ${{ secrets['VITE_NEON_AUTH_URL_PROD'] }}
+      PAGES_ARTIFACT_NAME: github-pages-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v5
       - name: Use Node.js
@@ -226,10 +227,13 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:
+          name: ${{ env.PAGES_ARTIFACT_NAME }}
           path: dist
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+        with:
+          artifact_name: ${{ env.PAGES_ARTIFACT_NAME }}
 
   notify:
     needs: [build, sonar, cypress-run, publish-image, deploy_pages]
