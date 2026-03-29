@@ -7,26 +7,13 @@ import { createInternalNeonAuth } from '@neondatabase/neon-js/auth';
 type NeonAuthInstance = ReturnType<typeof createInternalNeonAuth>;
 let neonAuth: NeonAuthInstance | null = null;
 
-function normalizeNeonAuthUrl(raw: string): string {
-  const trimmed = String(raw ?? '').trim().replace(/\/$/, '');
-  if (!trimmed) {
-    return '';
-  }
-
-  const lowered = trimmed.toLowerCase();
-  if (lowered.endsWith('/neondb/auth')) {
-    return trimmed.slice(0, -('/neondb/auth'.length));
-  }
-
-  if (lowered.endsWith('/auth') && lowered.includes('.neonauth.')) {
-    return trimmed.slice(0, -('/auth'.length));
-  }
-
-  return trimmed;
-}
-
 function getNeonAuthUrl(): string {
-  return normalizeNeonAuthUrl(String(import.meta.env.VITE_NEON_AUTH_URL ?? ''));
+  // Pass the URL as-is to the SDK — Better Auth checks whether the URL already
+  // has a non-root path. Neon Auth endpoints live under /neondb/auth, so the
+  // env var must include that suffix (e.g. https://host.neonauth.../neondb/auth).
+  // If the path is present, Better Auth uses the URL unchanged; if absent it
+  // would wrongly append /api/auth, causing HTTP 400 on all auth calls.
+  return String(import.meta.env.VITE_NEON_AUTH_URL ?? '').trim().replace(/\/$/, '');
 }
 
 function canUseNeonAuthSdk(): boolean {
