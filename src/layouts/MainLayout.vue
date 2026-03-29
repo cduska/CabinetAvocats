@@ -92,12 +92,15 @@ async function refreshNeonAuthSessionState(): Promise<void> {
   neonAuthSessionState.value = await getNeonAuthSessionState();
 }
 
+// Distinguish between: authenticated user session, anonymous token (no user login
+// but Data API works), and no token at all.
 const neonAuthSessionLabel = computed(() => {
   if (neonAuthSessionState.value === 'active') {
-    return 'oui';
+    return 'oui (utilisateur connecte)';
   }
   if (neonAuthSessionState.value === 'inactive') {
-    return 'non';
+    // Token may still be present via anonymous JWT — check the source
+    return neonTokenAvailable.value ? 'non (token anonyme actif)' : 'non (aucun token)';
   }
   return 'indisponible';
 });
@@ -232,7 +235,9 @@ function onUserChange(event: Event): void {
               {{ isNeonMode ? 'Mode Neon Data API' : 'Mode API locale' }}
             </span>
             <span v-if="isNeonMode" class="topbar-badge" :class="neonTokenAvailable ? 'is-ready' : 'is-missing'">
-              {{ neonTokenAvailable ? 'Token Neon present' : 'Token Neon manquant' }}
+              {{ neonTokenAvailable
+                ? neonAuthSessionState === 'active' ? 'Connecte' : 'Token anonyme'
+                : 'Token Neon manquant' }}
             </span>
           </div>
           <div v-if="isNeonMode" class="topbar-neon-diagnostics" data-cy="neon-diagnostics">
@@ -241,9 +246,9 @@ function onUserChange(event: Event): void {
             </p>
             <p>Data API: {{ neonDataApiUrlLabel }}</p>
             <p>Neon Auth: {{ neonAuthUrlLabel }}</p>
-            <p>Session Neon Auth: {{ neonAuthSessionLabel }}</p>
-            <p>Session active: {{ neonSessionReady ? 'oui' : 'non' }}</p>
-            <p>Source token: {{ neonTokenSourceLabel }}</p>
+            <p>Utilisateur: {{ neonAuthSessionLabel }}</p>
+            <p>Token: {{ neonTokenSourceLabel }}</p>
+            <p>Session app: {{ neonSessionReady ? 'oui' : 'non' }}</p>
           </div>
         </div>
 
