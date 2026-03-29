@@ -369,25 +369,25 @@ label {
 
 [data-theme='dark'] .topbar-badge.is-neon {
   color: #7ff2e3;
-  background: rgba(43, 170, 156, 0.22);
+  background: #1b3d45; /* rgba(43,170,156,0.22) composited over #171e2d */
   border-color: rgba(127, 242, 227, 0.3);
 }
 
 [data-theme='dark'] .topbar-badge.is-local {
   color: #f4cf86;
-  background: rgba(180, 133, 45, 0.2);
+  background: #36332d; /* rgba(180,133,45,0.2) composited over #171e2d */
   border-color: rgba(244, 207, 134, 0.3);
 }
 
 [data-theme='dark'] .topbar-badge.is-ready {
   color: #8ee6ab;
-  background: rgba(24, 110, 59, 0.26);
+  background: #173333; /* rgba(24,110,59,0.26) composited over #171e2d */
   border-color: rgba(142, 230, 171, 0.3);
 }
 
 [data-theme='dark'] .topbar-badge.is-missing {
   color: #f4a8a8;
-  background: rgba(158, 45, 45, 0.24);
+  background: #37222d; /* rgba(158,45,45,0.24) composited over #171e2d */
   border-color: rgba(244, 168, 168, 0.3);
 }
 
