@@ -1,30 +1,23 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
+import FullCalendar from '@fullcalendar/vue3';
+import dayGridPlugin from '@fullcalendar/daygrid';
+import timeGridPlugin from '@fullcalendar/timegrid';
+import listPlugin from '@fullcalendar/list';
+import frLocale from '@fullcalendar/core/locales/fr';
+import type { EventClickArg, CalendarOptions } from '@fullcalendar/core';
 import MetricCard from '../components/ui/MetricCard.vue';
 import { useAccessControl } from '../services/access';
 import { useSession } from '../services/session';
 import { getAudiences, getDashboardMetrics, getDocuments, getDossiers } from '../services/api';
 import type { AudienceItem, DashboardMetric, Dossier, DocumentItem } from '../types/domain';
 
-interface CalendarCell {
-  key: string;
-  isoDate: string;
-  dayNumber: number;
-  inCurrentMonth: boolean;
-  isToday: boolean;
-  events: AudienceItem[];
-}
-
-type CalendarViewMode = 'week' | 'month';
-
 const dataSource = ref('');
 const metrics = ref<DashboardMetric[]>([]);
 const dossierRows = ref<Dossier[]>([]);
 const documentRows = ref<DocumentItem[]>([]);
 const audienceRows = ref<AudienceItem[]>([]);
-const calendarViewMode = ref<CalendarViewMode>('month');
-const calendarFocusDate = ref(new Date());
 const selectedCalendarStatuses = ref<string[]>([]);
 const selectedCalendarContentieux = ref<string[]>([]);
 const router = useRouter();
@@ -77,28 +70,6 @@ const pendingDocuments = computed(() =>
   documentRows.value.filter((item) => item.statut !== 'Archive').slice(0, 6),
 );
 
-const calendarWeekdays = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
-
-function startOfDay(date: Date): Date {
-  const normalized = new Date(date);
-  normalized.setHours(0, 0, 0, 0);
-  return normalized;
-}
-
-function startOfWeek(date: Date): Date {
-  const normalized = startOfDay(date);
-  const weekOffset = (normalized.getDay() + 6) % 7;
-  normalized.setDate(normalized.getDate() - weekOffset);
-  return normalized;
-}
-
-function toIsoDate(date: Date): string {
-  const year = String(date.getFullYear());
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
 function parseIsoDate(value: string): Date | null {
   const normalized = value.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
@@ -113,8 +84,6 @@ function parseIsoDate(value: string): Date | null {
   const parsed = new Date(year, month - 1, day);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
-
-const todayIsoDate = toIsoDate(new Date());
 
 const calendarStatusOptions = computed(() => {
   return [...new Set(audienceRows.value.map((item) => item.procedureStatut || 'Non renseigne'))]
@@ -157,135 +126,6 @@ const filteredCalendarEvents = computed(() => {
     .sort((left, right) => left.dateAudience.localeCompare(right.dateAudience) || left.id - right.id);
 });
 
-const calendarEventsByDate = computed(() => {
-  const groups = new Map<string, AudienceItem[]>();
-
-  for (const event of filteredCalendarEvents.value) {
-    const dateKey = event.dateAudience.trim();
-    if (!dateKey) {
-      continue;
-    }
-
-    const existing = groups.get(dateKey);
-    if (existing) {
-      existing.push(event);
-      continue;
-    }
-
-    groups.set(dateKey, [event]);
-  }
-
-  return groups;
-});
-
-const calendarPeriodLabel = computed(() => {
-  if (calendarViewMode.value === 'week') {
-    const weekStart = startOfWeek(calendarFocusDate.value);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekEnd.getDate() + 6);
-    const dateFormatter = new Intl.DateTimeFormat('fr-FR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    });
-
-    return `Semaine du ${dateFormatter.format(weekStart)} au ${dateFormatter.format(weekEnd)}`;
-  }
-
-  const monthDate = new Date(calendarFocusDate.value.getFullYear(), calendarFocusDate.value.getMonth(), 1);
-  const raw = new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric' }).format(monthDate);
-  return raw.charAt(0).toUpperCase() + raw.slice(1);
-});
-
-function buildCalendarCell(date: Date, inCurrentMonth: boolean): CalendarCell {
-  const isoDate = toIsoDate(date);
-
-  return {
-    key: `${isoDate}-${inCurrentMonth ? 'current' : 'adjacent'}`,
-    isoDate,
-    dayNumber: date.getDate(),
-    inCurrentMonth,
-    isToday: isoDate === todayIsoDate,
-    events: calendarEventsByDate.value.get(isoDate) ?? [],
-  };
-}
-
-const calendarCells = computed(() => {
-  if (calendarViewMode.value === 'week') {
-    const weekCells: CalendarCell[] = [];
-    const weekStart = startOfWeek(calendarFocusDate.value);
-
-    for (let index = 0; index < 7; index += 1) {
-      const date = new Date(weekStart);
-      date.setDate(weekStart.getDate() + index);
-      weekCells.push(buildCalendarCell(date, date.getMonth() === calendarFocusDate.value.getMonth()));
-    }
-
-    return weekCells;
-  }
-
-  const cells: CalendarCell[] = [];
-  const monthStart = new Date(calendarFocusDate.value.getFullYear(), calendarFocusDate.value.getMonth(), 1);
-  const monthEnd = new Date(calendarFocusDate.value.getFullYear(), calendarFocusDate.value.getMonth() + 1, 0);
-  const leadingDays = (monthStart.getDay() + 6) % 7;
-
-  for (let index = leadingDays; index > 0; index -= 1) {
-    const date = new Date(monthStart.getFullYear(), monthStart.getMonth(), 1 - index);
-    cells.push(buildCalendarCell(date, false));
-  }
-
-  for (let day = 1; day <= monthEnd.getDate(); day += 1) {
-    const date = new Date(monthStart.getFullYear(), monthStart.getMonth(), day);
-    cells.push(buildCalendarCell(date, true));
-  }
-
-  while (cells.length % 7 !== 0) {
-    const dayOffset = cells.length - (leadingDays + monthEnd.getDate()) + 1;
-    const date = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, dayOffset);
-    cells.push(buildCalendarCell(date, false));
-  }
-
-  return cells;
-});
-
-function setCalendarViewMode(mode: CalendarViewMode) {
-  calendarViewMode.value = mode;
-}
-
-function previousCalendarPeriod() {
-  if (calendarViewMode.value === 'week') {
-    const previousWeek = startOfDay(calendarFocusDate.value);
-    previousWeek.setDate(previousWeek.getDate() - 7);
-    calendarFocusDate.value = previousWeek;
-    return;
-  }
-
-  calendarFocusDate.value = new Date(
-    calendarFocusDate.value.getFullYear(),
-    calendarFocusDate.value.getMonth() - 1,
-    1,
-  );
-}
-
-function nextCalendarPeriod() {
-  if (calendarViewMode.value === 'week') {
-    const nextWeek = startOfDay(calendarFocusDate.value);
-    nextWeek.setDate(nextWeek.getDate() + 7);
-    calendarFocusDate.value = nextWeek;
-    return;
-  }
-
-  calendarFocusDate.value = new Date(
-    calendarFocusDate.value.getFullYear(),
-    calendarFocusDate.value.getMonth() + 1,
-    1,
-  );
-}
-
-function resetCalendarPeriod() {
-  calendarFocusDate.value = startOfDay(new Date());
-}
-
 function openProcedureDetailFromCalendar(event: AudienceItem) {
   if (!canOpenProcedureDetail.value) {
     return;
@@ -297,15 +137,6 @@ function openProcedureDetailFromCalendar(event: AudienceItem) {
   }
 
   router.push({ name: 'procedure-detail', params: { id: String(procedureId) } }).catch(() => undefined);
-}
-
-function openDayPrimaryProcedure(cell: CalendarCell) {
-  const primaryEvent = cell.events[0];
-  if (!primaryEvent) {
-    return;
-  }
-
-  openProcedureDetailFromCalendar(primaryEvent);
 }
 
 function openMetricResults(metric: DashboardMetric) {
@@ -338,6 +169,41 @@ function openMetricResults(metric: DashboardMetric) {
     router.push({ name: 'documents', query: { preset: 'pending-validation' } }).catch(() => undefined);
   }
 }
+
+function mapToFcEvent(item: AudienceItem) {
+  return {
+    id: String(item.id),
+    title: `${item.dossierReference} — ${item.instanceType} (${item.procedureType})`,
+    start: item.dateAudience,
+    extendedProps: { audience: item },
+  };
+}
+
+function handleEventClick(arg: EventClickArg) {
+  const audience = arg.event.extendedProps['audience'] as AudienceItem;
+  openProcedureDetailFromCalendar(audience);
+}
+
+const calendarOptions = computed<CalendarOptions>(() => ({
+  plugins: [dayGridPlugin, timeGridPlugin, listPlugin],
+  initialView: 'dayGridMonth',
+  locale: frLocale,
+  headerToolbar: {
+    left: 'prev,next today',
+    center: 'title',
+    right: 'dayGridMonth,timeGridWeek,listMonth',
+  },
+  buttonText: {
+    today: "Aujourd'hui",
+    month: 'Mois',
+    week: 'Semaine',
+    list: 'Liste',
+  },
+  events: filteredCalendarEvents.value.map(mapToFcEvent),
+  eventClick: handleEventClick,
+  height: 'auto',
+  noEventsText: 'Aucune audience pour les filtres selectionnes',
+}));
 </script>
 
 <template>
@@ -370,40 +236,11 @@ function openMetricResults(metric: DashboardMetric) {
     </section>
 
     <section class="card calendar-card" data-cy="dashboard-calendar">
-      <header class="card-header calendar-header">
+      <header class="card-header">
         <div>
           <h2>Calendrier des instances</h2>
-          <p class="action-bar-caption">Filtres a gauche en multi-selection, puis clic sur une date pour ouvrir la procedure associee.</p>
+          <p class="action-bar-caption">Filtres a gauche, cliquez sur une audience pour ouvrir la procedure associee.</p>
           <p v-if="!canOpenProcedureDetail" class="action-bar-caption">Le detail procedure n'est pas accessible avec ce profil.</p>
-        </div>
-
-        <div class="calendar-controls">
-          <div class="calendar-zoom-toggle">
-            <button
-              class="button button-secondary"
-              :class="{ 'is-active': calendarViewMode === 'week' }"
-              type="button"
-              @click="setCalendarViewMode('week')"
-            >
-              Semaine
-            </button>
-            <button
-              class="button button-secondary"
-              :class="{ 'is-active': calendarViewMode === 'month' }"
-              type="button"
-              @click="setCalendarViewMode('month')"
-            >
-              Mois
-            </button>
-          </div>
-          <button class="button button-secondary" type="button" @click="previousCalendarPeriod">
-            {{ calendarViewMode === 'week' ? 'Semaine precedente' : 'Mois precedent' }}
-          </button>
-          <strong class="calendar-month-label">{{ calendarPeriodLabel }}</strong>
-          <button class="button button-secondary" type="button" @click="nextCalendarPeriod">
-            {{ calendarViewMode === 'week' ? 'Semaine suivante' : 'Mois suivant' }}
-          </button>
-          <button class="button" type="button" @click="resetCalendarPeriod">Aujourd'hui</button>
         </div>
       </header>
 
@@ -444,52 +281,7 @@ function openMetricResults(metric: DashboardMetric) {
         </aside>
 
         <div class="calendar-main">
-          <p v-if="filteredCalendarEvents.length === 0" class="action-bar-caption">Aucune date d'instance pour les filtres selectionnes.</p>
-
-          <div class="calendar-weekdays" aria-hidden="true">
-            <span v-for="weekday in calendarWeekdays" :key="weekday">{{ weekday }}</span>
-          </div>
-
-          <div :class="['calendar-grid', calendarViewMode === 'week' ? 'is-week-view' : 'is-month-view']">
-            <article
-              v-for="cell in calendarCells"
-              :key="cell.key"
-              :class="[
-                'calendar-cell',
-                cell.inCurrentMonth ? 'is-current-month' : 'is-other-month',
-                cell.isToday ? 'is-today' : '',
-                cell.events.length > 0 ? 'has-events' : '',
-              ]"
-            >
-              <button
-                class="calendar-day-trigger"
-                type="button"
-                :disabled="cell.events.length === 0 || !canOpenProcedureDetail"
-                @click="openDayPrimaryProcedure(cell)"
-              >
-                <span class="calendar-day-number">{{ cell.dayNumber }}</span>
-                <span v-if="cell.events.length > 0" class="calendar-event-count">{{ cell.events.length }}</span>
-              </button>
-
-              <ul v-if="cell.events.length > 0" class="calendar-event-list">
-                <li v-for="event in cell.events.slice(0, 2)" :key="event.id">
-                  <button
-                    class="calendar-event-item"
-                    type="button"
-                    :disabled="!canOpenProcedureDetail"
-                    @click="openProcedureDetailFromCalendar(event)"
-                  >
-                    <span class="calendar-event-dot" aria-hidden="true" />
-                    <span class="calendar-event-label">
-                      {{ event.dossierReference }} / {{ event.procedureType }} / {{ event.instanceType }}
-                    </span>
-                  </button>
-                </li>
-              </ul>
-
-              <p v-if="cell.events.length > 2" class="calendar-more">+{{ cell.events.length - 2 }} autres</p>
-            </article>
-          </div>
+          <FullCalendar :options="calendarOptions" />
         </div>
       </div>
     </section>
