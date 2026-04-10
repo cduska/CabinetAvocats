@@ -20,6 +20,7 @@ type AudienceNeonRow = {
       type_procedure?: { libelle?: string | null } | null;
       statut_procedure?: { libelle?: string | null } | null;
       dossier?: {
+        id?: number | null;
         reference?: string | null;
         type_dossier?: { libelle?: string | null } | null;
         agence?: { nom?: string | null; ville?: string | null } | null;
