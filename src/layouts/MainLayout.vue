@@ -44,6 +44,7 @@ const navigation: NavigationItem[] = [
   { label: 'Modeles', path: '/modeles', icon: 'MD', routeName: 'modeles' },
   { label: 'Documents', path: '/documents', icon: 'DC', routeName: 'documents' },
   { label: 'Schema', path: '/schema', icon: 'SC', routeName: 'schema' },
+  { label: 'Parametrage', path: '/parametrage', icon: 'PR', routeName: 'parametrage' },
 ];
 
 const pageTitle = computed(() => String(route.meta.title ?? 'Dashboard'));

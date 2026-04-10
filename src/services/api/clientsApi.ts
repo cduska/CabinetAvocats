@@ -73,3 +73,21 @@ export async function createClient(payload: {
     body: JSON.stringify(payload),
   });
 }
+
+export async function updateClient(id: number, payload: {
+  nom: string;
+  prenom: string;
+  email?: string;
+  telephone?: string;
+  agence?: string;
+  responsable?: string;
+}) {
+  return requestJson<Client>(`/api/clients/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteClient(id: number): Promise<void> {
+  await requestJson<void>(`/api/clients/${id}`, { method: 'DELETE' });
+}

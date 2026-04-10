@@ -9,12 +9,15 @@ export type AppRouteName =
   | 'audiences'
   | 'modeles'
   | 'documents'
-  | 'schema';
+  | 'schema'
+  | 'parametrage';
 
 export type AppAction =
   | 'dashboard:create-dossier'
   | 'dashboard:export-activity'
   | 'clients:create'
+  | 'clients:edit'
+  | 'clients:delete'
   | 'dossiers:create'
   | 'documents:create'
   | 'procedures:plan';
@@ -29,12 +32,15 @@ export const routeAccessMatrix: Record<AppRouteName, readonly SessionMetier[]> =
   modeles: ['Associee', 'Collaborateur', 'Juriste'],
   documents: ['Associee', 'Collaborateur', 'Juriste', 'Assistante'],
   schema: ['Associee', 'Collaborateur'],
+  parametrage: ['Associee'],
 };
 
 const actionAccessMatrix: Record<AppAction, readonly SessionMetier[]> = {
   'dashboard:create-dossier': ['Associee', 'Collaborateur'],
   'dashboard:export-activity': ['Associee', 'Collaborateur', 'Juriste'],
   'clients:create': ['Associee', 'Collaborateur', 'Assistante'],
+  'clients:edit': ['Associee', 'Collaborateur', 'Assistante'],
+  'clients:delete': ['Associee'],
   'dossiers:create': ['Associee', 'Collaborateur', 'Juriste'],
   'documents:create': ['Associee', 'Collaborateur', 'Juriste'],
   'procedures:plan': ['Associee', 'Collaborateur', 'Juriste'],

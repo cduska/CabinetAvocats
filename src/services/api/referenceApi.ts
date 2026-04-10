@@ -1,5 +1,6 @@
 import type {
   Agence,
+  RefItem,
   StatutDossier,
   StatutInstance,
   TypeDossier,
@@ -83,4 +84,66 @@ export async function getAgences() {
   }
 
   return requestJson<Agence[]>('/api/agence');
+}
+
+// =========================================================
+// CRUD generique pour tables referentiel simples (id + libelle)
+// =========================================================
+
+const SIMPLE_REF_TABLES = new Set([
+  'statut_dossier',
+  'type_dossier',
+  'statut_procedure',
+  'type_procedure',
+  'statut_instance',
+  'type_instance',
+  'type_document',
+]);
+
+export function isSimpleRefTable(table: string): boolean {
+  return SIMPLE_REF_TABLES.has(table);
+}
+
+export async function createReferenceItem(table: string, libelle: string): Promise<RefItem> {
+  return requestJson<RefItem>(`/api/${table}`, {
+    method: 'POST',
+    body: JSON.stringify({ libelle }),
+  });
+}
+
+export async function updateReferenceItem(table: string, id: number, libelle: string): Promise<RefItem> {
+  return requestJson<RefItem>(`/api/${table}/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ libelle }),
+  });
+}
+
+export async function deleteReferenceItem(table: string, id: number): Promise<void> {
+  await requestJson<void>(`/api/${table}/${id}`, { method: 'DELETE' });
+}
+
+// =========================================================
+// CRUD Agences
+// =========================================================
+
+export async function getAgenceById(id: number): Promise<Agence> {
+  return requestJson<Agence>(`/api/agence/${id}`);
+}
+
+export async function createAgence(payload: { nom: string; adresse?: string; ville?: string; codePostal?: string }): Promise<Agence> {
+  return requestJson<Agence>('/api/agence', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateAgence(id: number, payload: { nom: string; adresse?: string; ville?: string; codePostal?: string }): Promise<Agence> {
+  return requestJson<Agence>(`/api/agence/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteAgence(id: number): Promise<void> {
+  await requestJson<void>(`/api/agence/${id}`, { method: 'DELETE' });
 }

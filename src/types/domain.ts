@@ -174,4 +174,12 @@ export interface StatutInstance {
 export interface Agence {
   id: number;
   nom: string;
+  adresse?: string;
+  ville?: string;
+  codePostal?: string;
+}
+
+export interface RefItem {
+  id: number;
+  libelle: string;
 }

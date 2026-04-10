@@ -7,6 +7,7 @@ import DocumentsPage from '../pages/DocumentsPage.vue';
 import ModelesPage from '../pages/ModelesPage.vue';
 import AudiencesPage from '../pages/AudiencesPage.vue';
 import SchemaPage from '../pages/SchemaPage.vue';
+import ParametragePage from '../pages/ParametragePage.vue';
 import { getFirstAccessibleRoute, isRouteName, routeAccessMatrix } from '../services/access';
 import { getCurrentMetier } from '../services/session';
 
@@ -98,6 +99,15 @@ const routes: RouteRecordRaw[] = [
         meta: {
           title: 'Schema',
           allowedMetiers: routeAccessMatrix.schema,
+        },
+      },
+      {
+        path: '/parametrage',
+        name: 'parametrage',
+        component: ParametragePage,
+        meta: {
+          title: 'Parametrage',
+          allowedMetiers: routeAccessMatrix.parametrage,
         },
       },
     ],

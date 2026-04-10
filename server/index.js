@@ -1436,6 +1436,93 @@ app.post('/api/clients', async (request, response, next) => {
 });
 
 
+app.put('/api/clients/:id', async (request, response, next) => {
+  try {
+    const clientId = Number(request.params.id);
+    if (!Number.isInteger(clientId) || clientId <= 0) {
+      response.status(400).json({ message: 'ID client invalide.' });
+      return;
+    }
+
+    const sessionContext = getSessionContext(request);
+    const nom = toNullableText(request.body.nom);
+    const prenom = toNullableText(request.body.prenom);
+
+    if (!nom || !prenom) {
+      response.status(400).json({ message: 'nom et prenom sont obligatoires.' });
+      return;
+    }
+
+    const email = toNullableText(request.body.email);
+    const telephone = toNullableText(request.body.telephone);
+    const responsableName = toNullableText(request.body.responsable) ?? sessionContext.user;
+    const agenceId = await resolveAgenceIdForMutation(request.body.agence, sessionContext);
+    if (agenceId === null) {
+      response.status(403).json({ message: 'Aucune agence autorisee pour ce collaborateur.' });
+      return;
+    }
+    const responsableId = await findCollaborateurId(responsableName);
+
+    const result = await query(
+      `
+        UPDATE client
+        SET id_agence = $1,
+            id_collaborateur_responsable = $2,
+            nom = $3,
+            prenom = $4,
+            email = $5,
+            telephone = $6
+        WHERE id = $7
+        RETURNING id
+      `,
+      [agenceId, responsableId, nom, prenom, email, telephone, clientId],
+    );
+
+    if (result.rows.length === 0) {
+      response.status(404).json({ message: 'Client introuvable.' });
+      return;
+    }
+
+    const row = await getClientById(clientId);
+    response.json(row);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/clients/:id', async (request, response, next) => {
+  try {
+    const clientId = Number(request.params.id);
+    if (!Number.isInteger(clientId) || clientId <= 0) {
+      response.status(400).json({ message: 'ID client invalide.' });
+      return;
+    }
+
+    try {
+      const result = await query(
+        `DELETE FROM client WHERE id = $1 RETURNING id`,
+        [clientId],
+      );
+
+      if (result.rows.length === 0) {
+        response.status(404).json({ message: 'Client introuvable.' });
+        return;
+      }
+
+      response.status(204).end();
+    } catch (dbError) {
+      if (dbError.code === '23503') {
+        response.status(409).json({ message: 'Impossible de supprimer : ce client possede des dossiers associes.' });
+        return;
+      }
+
+      throw dbError;
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/dossiers/:id', async (request, response, next) => {
   try {
     const dossierId = Number(request.params.id);
@@ -2736,6 +2823,225 @@ app.get('/api/schema/tables', async (request, response, next) => {
     );
 
     response.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// =========================================================
+// CRUD generique pour les tables de referentiel simples (id + libelle)
+// =========================================================
+
+const ALLOWED_SIMPLE_REF_TABLES = new Set([
+  'statut_dossier',
+  'type_dossier',
+  'statut_procedure',
+  'type_procedure',
+  'statut_instance',
+  'type_instance',
+  'type_document',
+]);
+
+function registerSimpleLibelleRoutes(tableName) {
+  app.post(`/api/${tableName}`, async (request, response, next) => {
+    try {
+      const libelle = toNullableText(request.body?.libelle);
+      if (!libelle) {
+        response.status(400).json({ message: 'Le libelle est requis.' });
+        return;
+      }
+
+      const result = await query(
+        `INSERT INTO ${tableName} (libelle) VALUES ($1) RETURNING id, libelle`,
+        [libelle],
+      );
+      response.status(201).json(result.rows[0]);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put(`/api/${tableName}/:id`, async (request, response, next) => {
+    try {
+      const id = Number(request.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        response.status(400).json({ message: 'ID invalide.' });
+        return;
+      }
+
+      const libelle = toNullableText(request.body?.libelle);
+      if (!libelle) {
+        response.status(400).json({ message: 'Le libelle est requis.' });
+        return;
+      }
+
+      const result = await query(
+        `UPDATE ${tableName} SET libelle = $1 WHERE id = $2 RETURNING id, libelle`,
+        [libelle, id],
+      );
+
+      if (result.rows.length === 0) {
+        response.status(404).json({ message: 'Element introuvable.' });
+        return;
+      }
+
+      response.json(result.rows[0]);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete(`/api/${tableName}/:id`, async (request, response, next) => {
+    try {
+      const id = Number(request.params.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        response.status(400).json({ message: 'ID invalide.' });
+        return;
+      }
+
+      try {
+        const result = await query(
+          `DELETE FROM ${tableName} WHERE id = $1 RETURNING id`,
+          [id],
+        );
+
+        if (result.rows.length === 0) {
+          response.status(404).json({ message: 'Element introuvable.' });
+          return;
+        }
+
+        response.status(204).end();
+      } catch (dbError) {
+        if (dbError.code === '23503') {
+          response.status(409).json({ message: 'Impossible de supprimer : cet element est utilise par d\'autres donnees.' });
+          return;
+        }
+
+        throw dbError;
+      }
+    } catch (error) {
+      next(error);
+    }
+  });
+}
+
+for (const table of ALLOWED_SIMPLE_REF_TABLES) {
+  registerSimpleLibelleRoutes(table);
+}
+
+// =========================================================
+// CRUD Agences
+// =========================================================
+
+app.get('/api/agence/:id', async (request, response, next) => {
+  try {
+    const id = Number(request.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      response.status(400).json({ message: 'ID invalide.' });
+      return;
+    }
+
+    const result = await query(
+      `SELECT id, nom, COALESCE(adresse, '') AS adresse, COALESCE(ville, '') AS ville, COALESCE(code_postal, '') AS "codePostal" FROM agence WHERE id = $1 LIMIT 1`,
+      [id],
+    );
+
+    if (result.rows.length === 0) {
+      response.status(404).json({ message: 'Agence introuvable.' });
+      return;
+    }
+
+    response.json(result.rows[0]);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/agence', async (request, response, next) => {
+  try {
+    const nom = toNullableText(request.body?.nom);
+    if (!nom) {
+      response.status(400).json({ message: 'Le nom est requis.' });
+      return;
+    }
+
+    const adresse = toNullableText(request.body?.adresse);
+    const ville = toNullableText(request.body?.ville);
+    const codePostal = toNullableText(request.body?.codePostal);
+
+    const result = await query(
+      `INSERT INTO agence (nom, adresse, ville, code_postal) VALUES ($1, $2, $3, $4) RETURNING id, nom, COALESCE(adresse, '') AS adresse, COALESCE(ville, '') AS ville, COALESCE(code_postal, '') AS "codePostal"`,
+      [nom, adresse, ville, codePostal],
+    );
+
+    response.status(201).json(result.rows[0]);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/agence/:id', async (request, response, next) => {
+  try {
+    const id = Number(request.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      response.status(400).json({ message: 'ID invalide.' });
+      return;
+    }
+
+    const nom = toNullableText(request.body?.nom);
+    if (!nom) {
+      response.status(400).json({ message: 'Le nom est requis.' });
+      return;
+    }
+
+    const adresse = toNullableText(request.body?.adresse);
+    const ville = toNullableText(request.body?.ville);
+    const codePostal = toNullableText(request.body?.codePostal);
+
+    const result = await query(
+      `UPDATE agence SET nom = $1, adresse = $2, ville = $3, code_postal = $4 WHERE id = $5 RETURNING id, nom, COALESCE(adresse, '') AS adresse, COALESCE(ville, '') AS ville, COALESCE(code_postal, '') AS "codePostal"`,
+      [nom, adresse, ville, codePostal, id],
+    );
+
+    if (result.rows.length === 0) {
+      response.status(404).json({ message: 'Agence introuvable.' });
+      return;
+    }
+
+    response.json(result.rows[0]);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/agence/:id', async (request, response, next) => {
+  try {
+    const id = Number(request.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      response.status(400).json({ message: 'ID invalide.' });
+      return;
+    }
+
+    try {
+      const result = await query(
+        `DELETE FROM agence WHERE id = $1 RETURNING id`,
+        [id],
+      );
+
+      if (result.rows.length === 0) {
+        response.status(404).json({ message: 'Agence introuvable.' });
+        return;
+      }
+
+      response.status(204).end();
+    } catch (dbError) {
+      if (dbError.code === '23503') {
+        response.status(409).json({ message: 'Impossible de supprimer : cette agence est associee a des collaborateurs ou clients.' });
+        return;
+      }
+
+      throw dbError;
+    }
   } catch (error) {
     next(error);
   }

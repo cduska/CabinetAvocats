@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import DataTable from '../components/ui/DataTable.vue';
 import DrawerPanel from '../components/ui/DrawerPanel.vue';
+import RichTextEditor from '../components/ui/RichTextEditor.vue';
 import {
   createModele,
   generateDocument,
@@ -36,7 +37,7 @@ const form = reactive({
   nomModele: '',
   typeDocumentId: null as number | null,
   description: '',
-  contenuJsonText: '{\n  "template": ""\n}',
+  contenuJson: {} as Record<string, unknown>,
 });
 
 const generateForm = reactive({
@@ -65,12 +66,11 @@ function formatPublished(value: boolean): string {
   return value ? 'Oui' : 'Non';
 }
 
-function parseJson(text: string): Record<string, unknown> {
-  const parsed = JSON.parse(text);
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Le JSON doit etre un objet.');
+function parseJson(value: Record<string, unknown>): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Le contenu doit etre un objet JSON valide.');
   }
-  return parsed as Record<string, unknown>;
+  return value;
 }
 
 async function loadModeles() {
@@ -107,7 +107,7 @@ async function loadModeleDetail(modeleId: number) {
     form.nomModele = detail.nomModele;
     form.typeDocumentId = detail.typeDocumentId;
     form.description = detail.description;
-    form.contenuJsonText = JSON.stringify(detail.contenuJson ?? {}, null, 2);
+    form.contenuJson = detail.contenuJson ?? {};
     versions.value = history;
     selectedVersion.value = history[0]?.numeroVersion ?? null;
   } catch (caughtError) {
@@ -129,7 +129,7 @@ function resetCreateForm() {
   form.nomModele = '';
   form.typeDocumentId = typeDocuments.value[0]?.id ?? null;
   form.description = '';
-  form.contenuJsonText = '{\n  "template": ""\n}';
+  form.contenuJson = {};
 }
 
 async function createNewModele() {
@@ -142,7 +142,7 @@ async function createNewModele() {
   error.value = '';
 
   try {
-    const contenuJson = parseJson(form.contenuJsonText);
+    const contenuJson = parseJson(form.contenuJson);
     await createModele({
       nomModele: form.nomModele,
       typeDocumentId: form.typeDocumentId,
@@ -169,7 +169,7 @@ async function saveModele() {
   error.value = '';
 
   try {
-    const contenuJson = parseJson(form.contenuJsonText);
+    const contenuJson = parseJson(form.contenuJson);
     await updateModele(selectedModeleId.value, {
       nomModele: form.nomModele,
       typeDocumentId: form.typeDocumentId,
@@ -212,7 +212,7 @@ async function generateFromModele() {
   error.value = '';
 
   try {
-    const variables = parseJson(generateForm.variablesText);
+    const variables = parseJson(JSON.parse(generateForm.variablesText) as Record<string, unknown>);
     const generated = await generateDocument({
       modeleId: selectedModeleId.value,
       numeroVersion: selectedVersion.value,
@@ -296,10 +296,10 @@ onMounted(() => {
           <textarea v-model="form.description" class="input" rows="2" />
         </label>
 
-        <label>
-          Contenu JSON
-          <textarea v-model="form.contenuJsonText" class="input json-editor" rows="12" />
-        </label>
+        <div class="label-block">
+          <span>Contenu</span>
+          <RichTextEditor v-model="form.contenuJson" />
+        </div>
       </form>
 
       <div class="modele-actions">
@@ -369,10 +369,10 @@ onMounted(() => {
           Description
           <textarea v-model="form.description" class="input" rows="2" />
         </label>
-        <label>
-          Contenu JSON
-          <textarea v-model="form.contenuJsonText" class="input json-editor" rows="10" />
-        </label>
+        <div class="label-block">
+          <span>Contenu</span>
+          <RichTextEditor v-model="form.contenuJson" />
+        </div>
       </form>
 
       <template #footer>
@@ -404,8 +404,10 @@ onMounted(() => {
   padding-top: 0.7rem;
 }
 
-.json-editor {
-  font-family: 'Consolas', 'Monaco', monospace;
+.label-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
 }
 
 .autosave-error {
