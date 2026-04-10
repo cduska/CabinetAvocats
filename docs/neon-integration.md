@@ -119,6 +119,8 @@ Chaque fichier API expose deux modes via le flag `isNeonDataApiEnabled()` :
 | `referenceApi.ts` | `statut_dossier`, `statut_procedure`, `type_procedure`, `type_document`, `type_instance`, `statut_instance`, `type_dossier`, `agence` |
 | `proceduresApi.ts` | `procedure`, `type_procedure`, `statut_procedure`, `dossier`, `agence` |
 
+> **Opérations d'écriture (POST / PUT / DELETE)** : quelle que soit la valeur de `VITE_USE_NEON_DATA_API`, les mutations (création, modification, suppression) pour les clients et les tables de référentiel passent **toujours** par le backend Express local (`/api/...`). Neon Data API (PostgREST) n'est utilisé qu'en **lecture**. En production (GitHub Pages), les fonctions de création/édition ne sont donc pas disponibles sans accès au backend.
+
 ### Syntaxe de filtre d'agence (PostgREST)
 
 Pour filtrer sur une table embarquée, utiliser `table.or=(col.ilike.*val*)` :

@@ -11,6 +11,50 @@ Application intranet Vue 3 (Vite + TypeScript) pour la gestion d'un cabinet d'av
 
 - [Politique de couleurs des statuts](docs/status-colors.md)
 - [Gestion des modeles et documents](docs/modeles-documents.md)
+- [Integration Neon (Auth + Data API)](docs/neon-integration.md)
+- [Pipeline CI/CD](docs/ci-cd.md)
+
+## Pages et contrôle d'accès
+
+| Route | Composant | Roles autorises |
+|---|---|---|
+| `/` | `DashboardPage.vue` | Tous |
+| `/clients` | `ClientsPage.vue` | Tous |
+| `/dossiers` | `DossiersPage.vue` | Tous |
+| `/dossiers/:id` | `DossierDetailPage.vue` | Tous |
+| `/procedures/:id` | `ProcedureDetailPage.vue` | Tous |
+| `/audiences` | `AudiencesPage.vue` | Tous |
+| `/documents` | `DocumentsPage.vue` | Tous |
+| `/modeles` | `ModelesPage.vue` | Tous |
+| `/parametrage` | `ParametragePage.vue` | Associee uniquement |
+
+### Actions CRUD
+
+| Action | Roles autorises |
+|---|---|
+| `clients:create` | Associee, Collaborateur, Assistante |
+| `clients:edit` | Associee, Collaborateur, Assistante |
+| `clients:delete` | Associee |
+| `dossiers:create` | Associee, Collaborateur, Juriste |
+| `documents:create` | Associee, Collaborateur, Juriste, Assistante |
+| `procedures:plan` | Associee, Juriste |
+
+### Parametrage (tables de référentiel)
+
+La page `/parametrage` (accessible aux **Associee** uniquement) permet la gestion complète (créer / modifier / supprimer) des tables de référentiel :
+
+| Table | Libellé |
+|---|---|
+| `statut_dossier` | Statuts de dossier |
+| `type_dossier` | Types de dossier |
+| `statut_procedure` | Statuts de procédure |
+| `type_procedure` | Types de procédure |
+| `statut_instance` | Statuts d'instance |
+| `type_instance` | Types d'instance |
+| `type_document` | Types de document |
+| `agence` | Agences (nom, adresse, ville, code postal) |
+
+Les suppressions sont refusées avec une réponse `HTTP 409` si des enregistrements liés existent en base (contrainte FK).
 
 ## Stack technique (resume)
 
@@ -267,6 +311,8 @@ Validation JWT cote serveur (optionnelle, pour les routes Express):
 | `@types/node` | Types Node pour scripts/config | Essentielle |
 | `cypress` | Tests E2E locaux et CI (Cypress Cloud) | Essentielle |
 | `concurrently` | Lancement parallele API + front (`dev`, `dev:full`, `dev:ci`) | Essentielle |
+| `@storybook/vue3-vite` | Storybook pour les composants UI (`DataTable`, `DrawerPanel`, `MetricCard`) | Dev uniquement |
+| `vitest` | Tests unitaires (configuration via `vitest.config.ts`) | Dev uniquement |
 
 ### Conclusion audit dependances
 
