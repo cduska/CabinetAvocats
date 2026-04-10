@@ -41,6 +41,7 @@ const route = useRoute();
 const router = useRouter();
 
 const dossierId = Number(route.params.id);
+const queryProcedureId = Number(route.query.procedureId) || null;
 const dossier = ref<Dossier | undefined>(undefined);
 const statuts = ref<StatutDossier[]>([]);
 const types = ref<TypeDossier[]>([]);
@@ -344,7 +345,10 @@ watch(
 
     const currentSelectionStillPresent = nextProcedures.some((item) => item.id === selectedProcedureId.value);
     if (!currentSelectionStillPresent) {
-      selectedProcedureId.value = nextProcedures[0].id;
+      const preferred = queryProcedureId !== null && nextProcedures.some((item) => item.id === queryProcedureId)
+        ? queryProcedureId
+        : nextProcedures[0].id;
+      selectedProcedureId.value = preferred;
     }
   },
   { immediate: true },

@@ -32,6 +32,7 @@ function mapAudienceRow(row: AudienceNeonRow): AudienceItem {
   return {
     id: row.id,
     procedureId: row.instance_juridique?.procedure?.id ?? null,
+    dossierId: row.instance_juridique?.procedure?.dossier?.id ?? null,
     dossierReference: row.instance_juridique?.procedure?.dossier?.reference ?? '',
     dossierType: row.instance_juridique?.procedure?.dossier?.type_dossier?.libelle ?? 'Non renseigne',
     procedureType: row.instance_juridique?.procedure?.type_procedure?.libelle ?? 'Non renseigne',
@@ -68,7 +69,7 @@ function isInUpcoming7d(dateValue?: string | null): boolean {
 
 async function getAudiencesFromNeon(preset?: 'upcoming7d'): Promise<AudienceItem[]> {
   const params = new URLSearchParams();
-  params.set('select', 'id,date_audience,commentaire,instance_juridique(id,type_instance(libelle),procedure(id,type_procedure(libelle),statut_procedure(libelle),dossier(reference,type_dossier(libelle),agence(nom,ville))))');
+  params.set('select', 'id,date_audience,commentaire,instance_juridique(id,type_instance(libelle),procedure(id,type_procedure(libelle),statut_procedure(libelle),dossier(id,reference,type_dossier(libelle),agence(nom,ville))))');
   params.set('order', 'date_audience.asc,id.asc');
 
   const rows = await requestNeonRest<AudienceNeonRow[]>(`/audience?${params.toString()}`);

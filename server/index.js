@@ -2160,6 +2160,7 @@ app.get('/api/audiences', async (request, response, next) => {
         SELECT
           aud.id,
           p.id AS "procedureId",
+          d.id AS "dossierId",
           COALESCE(d.reference, '') AS "dossierReference",
           COALESCE(td.libelle, 'Non renseigne') AS "dossierType",
           COALESCE(tp.libelle, 'Procedure') AS "procedureType",

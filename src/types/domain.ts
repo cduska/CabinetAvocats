@@ -131,6 +131,7 @@ export interface DashboardMetric {
 export interface AudienceItem {
   id: number;
   procedureId?: number | null;
+  dossierId?: number | null;
   dossierReference: string;
   dossierType: string;
   procedureType: string;

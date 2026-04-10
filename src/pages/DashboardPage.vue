@@ -25,7 +25,7 @@ const { canPerformAction, canAccessRoute } = useAccessControl();
 const { state: sessionState } = useSession();
 const canCreateDossier = computed(() => canPerformAction('dashboard:create-dossier'));
 const canExportActivity = computed(() => canPerformAction('dashboard:export-activity'));
-const canOpenProcedureDetail = computed(() => canAccessRoute('procedure-detail'));
+const canOpenProcedureDetail = computed(() => canAccessRoute('dossier-detail'));
 
 async function hydrateDashboard() {
   try {
@@ -131,12 +131,17 @@ function openProcedureDetailFromCalendar(event: AudienceItem) {
     return;
   }
 
+  const dossierId = Number(event.dossierId);
   const procedureId = Number(event.procedureId);
-  if (!Number.isFinite(procedureId)) {
+  if (Number.isFinite(dossierId) && dossierId > 0) {
+    const query = Number.isFinite(procedureId) && procedureId > 0 ? { procedureId: String(procedureId) } : {};
+    router.push({ name: 'dossier-detail', params: { id: String(dossierId) }, query }).catch(() => undefined);
     return;
   }
 
-  router.push({ name: 'procedure-detail', params: { id: String(procedureId) } }).catch(() => undefined);
+  if (Number.isFinite(procedureId) && procedureId > 0) {
+    router.push({ name: 'procedure-detail', params: { id: String(procedureId) } }).catch(() => undefined);
+  }
 }
 
 function openMetricResults(metric: DashboardMetric) {
