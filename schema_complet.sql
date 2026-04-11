@@ -291,6 +291,7 @@ CREATE TABLE document (
        (id_procedure IS NOT NULL)::int +
        (id_instance IS NOT NULL)::int = 1
    )
+);
  
 -- =========================================================
 -- 10. AFFECTATIONS (multi-agences autorisé)
