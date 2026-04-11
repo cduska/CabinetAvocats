@@ -158,7 +158,8 @@ CREATE TABLE dossier (
    id_statut_dossier INT REFERENCES statut_dossier(id), 
    reference VARCHAR(100), 
    date_ouverture DATE, 
-   date_cloture DATE 
+   date_cloture DATE,
+   informations_secretes TEXT
 ); 
  
 CREATE TABLE historique_dossier ( 

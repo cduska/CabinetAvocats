@@ -159,14 +159,15 @@ CREATE TABLE role_affectation (
 -- =============================================================
 
 CREATE TABLE dossier (
-   id                SERIAL PRIMARY KEY,
-   id_agence         INT REFERENCES agence(id),
-   id_client         INT REFERENCES client(id),
-   id_type_dossier   INT REFERENCES type_dossier(id),
-   id_statut_dossier INT REFERENCES statut_dossier(id),
-   reference         VARCHAR(100) NOT NULL UNIQUE,
-   date_ouverture    DATE,
-   date_cloture      DATE,
+   id                     SERIAL PRIMARY KEY,
+   id_agence              INT REFERENCES agence(id),
+   id_client              INT REFERENCES client(id),
+   id_type_dossier        INT REFERENCES type_dossier(id),
+   id_statut_dossier      INT REFERENCES statut_dossier(id),
+   reference              VARCHAR(100) NOT NULL UNIQUE,
+   date_ouverture         DATE,
+   date_cloture           DATE,
+   informations_secretes  TEXT,
    CONSTRAINT chk_dossier_dates
      CHECK (date_cloture IS NULL OR date_ouverture IS NULL OR date_cloture >= date_ouverture)
 );
