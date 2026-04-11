@@ -7,15 +7,11 @@
 --    ou : psql -U postgres -d <votre_base> -f scripts/rebuild-local.sql
 -- =============================================================
 
-BEGIN;
-
 -- =============================================================
 -- 1. NETTOYAGE COMPLET
 -- =============================================================
 DROP SCHEMA IF EXISTS public CASCADE;
 CREATE SCHEMA public;
-GRANT ALL ON SCHEMA public TO postgres;
-GRANT ALL ON SCHEMA public TO public;
 
 -- =============================================================
 -- 2. AGENCES
@@ -467,5 +463,3 @@ COMMENT ON TABLE historique_dossier IS
 
 COMMENT ON TABLE historique_instance IS
   'Journal des modifications d''instance. Attention : les modifications d''instance passaient historiquement dans historique_procedure par erreur - corrigé dans la migration 2026-04-11.';
-
-COMMIT;
