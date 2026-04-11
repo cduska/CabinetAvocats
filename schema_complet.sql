@@ -5,28 +5,28 @@
 CREATE SCHEMA IF NOT EXISTS public
     AUTHORIZATION postgres;
 
--- ========================================================= 
--- 1. AGENCES & PROFILS 
--- ========================================================= 
- 
-CREATE TABLE agence ( 
-   id SERIAL PRIMARY KEY, 
-   nom VARCHAR(150) NOT NULL, 
-   adresse VARCHAR(255), 
-   ville VARCHAR(100), 
-   code_postal VARCHAR(20) 
-); 
- 
-CREATE TABLE profil ( 
-   id SERIAL PRIMARY KEY, 
-   libelle VARCHAR(100) NOT NULL 
-); 
- 
--- ========================================================= 
--- 2. METIERS, COLLABORATEURS, ROLES APPLICATIFS 
--- ========================================================= 
- 
-CREATE TABLE metier ( 
+-- =========================================================
+-- 1. AGENCES
+-- =========================================================
+
+CREATE TABLE agence (
+   id SERIAL PRIMARY KEY,
+   nom VARCHAR(150) NOT NULL,
+   adresse VARCHAR(255),
+   ville VARCHAR(100),
+   code_postal VARCHAR(20)
+);
+
+-- =========================================================
+-- 2. RÉFÉRENTIELS & COLLABORATEURS
+-- =========================================================
+
+CREATE TABLE profil (
+   id SERIAL PRIMARY KEY,
+   libelle VARCHAR(100) NOT NULL
+);
+
+CREATE TABLE metier (
    id SERIAL PRIMARY KEY, 
    libelle VARCHAR(100) NOT NULL 
 ); 
@@ -141,13 +141,13 @@ CREATE TABLE type_document (
    libelle VARCHAR(100) NOT NULL 
 ); 
  
--- ========================================================= 
--- 6. DOSSIERS, HISTORIQUE, FACTURES 
--- ========================================================= 
- 
-CREATE TABLE dossier ( 
-   id SERIAL PRIMARY KEY, 
-   id_agence INT REFERENCES agence(id), 
+CREATE TABLE role_affectation (
+   id SERIAL PRIMARY KEY,
+   libelle VARCHAR(100) NOT NULL
+);
+
+-- =========================================================
+-- 6. DOSSIERS & FACTURES
    id_client INT REFERENCES client(id), 
    id_type_dossier INT REFERENCES type_dossier(id), 
    id_statut_dossier INT REFERENCES statut_dossier(id), 
@@ -218,87 +218,80 @@ CREATE TABLE audience (
 ); 
  
 -- ========================================================= 
--- 8. DOCUMENTS & MODELES (JSONB + versions) 
--- ========================================================= 
- 
-CREATE TABLE document ( 
-   id SERIAL PRIMARY KEY, 
-   id_type_document INT REFERENCES type_document(id), 
-   id_dossier INT REFERENCES dossier(id), 
-   id_procedure INT REFERENCES procedure(id), 
-   id_instance INT REFERENCES instance_juridique(id), 
-   auteur INT REFERENCES collaborateur(id), 
-   id_modele INT, 
-   numero_version_modele INT, 
-   statut_document VARCHAR(50) DEFAULT 'brouillon', 
-   metadata_json JSONB, 
-   chemin_fichier TEXT, 
-   date_creation TIMESTAMP, 
-   CHECK ( 
-       (id_dossier IS NOT NULL)::int + 
-       (id_procedure IS NOT NULL)::int + 
-       (id_instance IS NOT NULL)::int = 1 
-   ) 
-); 
- 
-CREATE TABLE modele_document ( 
-   id SERIAL PRIMARY KEY, 
-   id_type_document INT REFERENCES type_document(id), 
-   nom_modele VARCHAR(150), 
-   description TEXT, 
-   contenu_json JSONB, 
-   CHECK (contenu_json IS NULL OR jsonb_typeof(contenu_json) = 'object') 
-); 
+-- 8. MODELES DE DOCUMENTS (JSONB + versions)
+-- =========================================================
 
-ALTER TABLE document
-   ADD CONSTRAINT fk_document_modele
-   FOREIGN KEY (id_modele)
-   REFERENCES modele_document(id);
+CREATE TABLE modele_document (
+   id SERIAL PRIMARY KEY,
+   id_type_document INT REFERENCES type_document(id),
+   nom_modele VARCHAR(150),
+   description TEXT,
+   contenu_json JSONB,
+   CHECK (contenu_json IS NULL OR jsonb_typeof(contenu_json) = 'object')
+);
+
+CREATE INDEX idx_modele_document_contenu_json
+ON modele_document
+USING GIN (contenu_json);
+
+CREATE TABLE modele_document_version (
+   id SERIAL PRIMARY KEY,
+   id_modele INT REFERENCES modele_document(id),
+   numero_version INT NOT NULL,
+   contenu_json JSONB NOT NULL,
+   cree_le TIMESTAMP DEFAULT NOW(),
+   cree_par INT REFERENCES collaborateur(id),
+   CHECK (jsonb_typeof(contenu_json) = 'object')
+);
+
+CREATE UNIQUE INDEX uq_modele_version
+ON modele_document_version (id_modele, numero_version);
+
+CREATE INDEX idx_modele_document_version_contenu_json
+ON modele_document_version
+USING GIN (contenu_json);
+
+CREATE TABLE modele_sous_domaine (
+   id_modele INT REFERENCES modele_document(id),
+   id_sous_domaine INT REFERENCES sous_domaine(id),
+   PRIMARY KEY(id_modele, id_sous_domaine)
+);
+
+CREATE TABLE paragraphe_predefini (
+   id SERIAL PRIMARY KEY,
+   id_modele INT REFERENCES modele_document(id),
+   ordre INT,
+   contenu TEXT
+);
+
+-- =========================================================
+-- 9. DOCUMENTS
+-- =========================================================
+
+CREATE TABLE document (
+   id SERIAL PRIMARY KEY,
+   id_type_document INT REFERENCES type_document(id),
+   id_dossier INT REFERENCES dossier(id),
+   id_procedure INT REFERENCES procedure(id),
+   id_instance INT REFERENCES instance_juridique(id),
+   auteur INT REFERENCES collaborateur(id),
+   id_modele INT REFERENCES modele_document(id),
+   numero_version_modele INT,
+   statut_document VARCHAR(50) DEFAULT 'brouillon',
+   metadata_json JSONB,
+   chemin_fichier TEXT,
+   date_creation TIMESTAMP,
+   CHECK (
+       (id_dossier IS NOT NULL)::int +
+       (id_procedure IS NOT NULL)::int +
+       (id_instance IS NOT NULL)::int = 1
+   )
  
-CREATE INDEX idx_modele_document_json 
-ON modele_document 
-USING GIN (contenu_json); 
- 
-CREATE TABLE modele_document_version ( 
-   id SERIAL PRIMARY KEY, 
-   id_modele INT REFERENCES modele_document(id), 
-   numero_version INT NOT NULL, 
-   contenu_json JSONB NOT NULL, 
-   cree_le TIMESTAMP DEFAULT NOW(), 
-   cree_par INT REFERENCES collaborateur(id), 
-   CHECK (jsonb_typeof(contenu_json) = 'object') 
-); 
- 
-CREATE UNIQUE INDEX uq_modele_version 
-ON modele_document_version (id_modele, numero_version); 
- 
-CREATE INDEX idx_modele_document_version_json 
-ON modele_document_version 
-USING GIN (contenu_json); 
- 
-CREATE TABLE modele_sous_domaine ( 
-   id_modele INT REFERENCES modele_document(id), 
-   id_sous_domaine INT REFERENCES sous_domaine(id), 
-   PRIMARY KEY(id_modele, id_sous_domaine) 
-); 
- 
-CREATE TABLE paragraphe_predefini ( 
-   id SERIAL PRIMARY KEY, 
-   id_modele INT REFERENCES modele_document(id), 
-   ordre INT, 
-   contenu TEXT 
-); 
- 
--- ========================================================= 
--- 9. AFFECTATIONS (multi-agences autorisé) 
--- ========================================================= 
- 
-CREATE TABLE role_affectation ( 
-   id SERIAL PRIMARY KEY, 
-   libelle VARCHAR(100) NOT NULL 
-); 
- 
-CREATE TABLE affectation_dossier ( 
+-- =========================================================
+-- 10. AFFECTATIONS (multi-agences autorisé)
+-- =========================================================
+
+CREATE TABLE affectation_dossier (
    id SERIAL PRIMARY KEY, 
    id_collaborateur INT REFERENCES collaborateur(id), 
    id_dossier INT REFERENCES dossier(id), 
@@ -316,129 +309,100 @@ CREATE TABLE affectation_procedure (
    date_fin DATE 
 );
 
--- 1. Index généraux sur les clés étrangères
+-- =========================================================
+-- 11. INDEX
+-- =========================================================
 
--- AGENCE 
-CREATE INDEX idx_collaborateur_id_agence ON collaborateur(id_agence); 
-CREATE INDEX idx_client_id_agence ON client(id_agence); 
-CREATE INDEX idx_dossier_id_agence ON dossier(id_agence); 
- 
--- COLLABORATEURS 
-CREATE INDEX idx_collaborateur_id_metier ON collaborateur(id_metier); 
- 
--- CLIENTS 
-CREATE INDEX idx_client_id_collaborateur_responsable ON client(id_collaborateur_responsable); 
- 
--- DOSSIERS 
-CREATE INDEX idx_dossier_id_client ON dossier(id_client); 
-CREATE INDEX idx_dossier_id_type_dossier ON dossier(id_type_dossier); 
-CREATE INDEX idx_dossier_id_statut_dossier ON dossier(id_statut_dossier); 
- 
--- HISTORIQUE DOSSIER 
-CREATE INDEX idx_histo_dossier_id_dossier ON historique_dossier(id_dossier); 
-CREATE INDEX idx_histo_dossier_auteur ON historique_dossier(auteur); 
- 
--- FACTURES 
-CREATE INDEX idx_facture_id_dossier ON facture(id_dossier); 
- 
--- PROCEDURES 
-CREATE INDEX idx_procedure_id_dossier ON procedure(id_dossier); 
-CREATE INDEX idx_procedure_id_type_procedure ON procedure(id_type_procedure); 
-CREATE INDEX idx_procedure_id_statut_procedure ON procedure(id_statut_procedure); 
- 
--- HISTORIQUE PROCEDURE 
-CREATE INDEX idx_histo_procedure_id_procedure ON historique_procedure(id_procedure); 
-CREATE INDEX idx_histo_procedure_auteur ON historique_procedure(auteur); 
- 
--- INSTANCES 
-CREATE INDEX idx_instance_id_procedure ON instance_juridique(id_procedure); 
-CREATE INDEX idx_instance_id_type_instance ON instance_juridique(id_type_instance); 
-CREATE INDEX idx_instance_id_statut_instance ON instance_juridique(id_statut_instance); 
- 
--- HISTORIQUE INSTANCE 
-CREATE INDEX idx_histo_instance_id_instance ON historique_instance(id_instance); 
-CREATE INDEX idx_histo_instance_auteur ON historique_instance(auteur); 
- 
--- AUDIENCES 
-CREATE INDEX idx_audience_id_instance ON audience(id_instance); 
- 
--- DOCUMENTS 
-CREATE INDEX idx_document_id_type_document ON document(id_type_document); 
-CREATE INDEX idx_document_id_dossier ON document(id_dossier); 
-CREATE INDEX idx_document_id_procedure ON document(id_procedure); 
-CREATE INDEX idx_document_id_instance ON document(id_instance); 
-CREATE INDEX idx_document_auteur ON document(auteur); 
-CREATE INDEX idx_document_id_modele ON document(id_modele); 
-CREATE INDEX idx_document_modele_version ON document(id_modele, numero_version_modele); 
-CREATE INDEX idx_document_statut_document ON document(statut_document); 
-CREATE INDEX idx_document_metadata_json ON document USING GIN (metadata_json); 
- 
--- MODELES 
-CREATE INDEX idx_modele_id_type_document ON modele_document(id_type_document); 
- 
--- MODELE VERSION 
-CREATE INDEX idx_modele_version_id_modele ON modele_document_version(id_modele); 
- 
--- AFFECTATIONS 
-CREATE INDEX idx_affect_dossier_id_collaborateur ON affectation_dossier(id_collaborateur); 
-CREATE INDEX idx_affect_dossier_id_dossier ON affectation_dossier(id_dossier); 
-CREATE INDEX idx_affect_dossier_id_role ON affectation_dossier(id_role); 
- 
-CREATE INDEX idx_affect_procedure_id_collaborateur ON affectation_procedure(id_collaborateur); 
-CREATE INDEX idx_affect_procedure_id_procedure ON affectation_procedure(id_procedure); 
-CREATE INDEX idx_affect_procedure_id_role ON affectation_procedure(id_role); 
+-- Agences
+CREATE INDEX idx_collaborateur_id_agence ON collaborateur(id_agence);
+CREATE INDEX idx_client_id_agence ON client(id_agence);
+CREATE INDEX idx_dossier_id_agence ON dossier(id_agence);
 
--- 2. Index pour les recherches par agence
-CREATE INDEX idx_dossier_agence ON dossier(id_agence); 
-CREATE INDEX idx_client_agence ON client(id_agence); 
-CREATE INDEX idx_collaborateur_agence ON collaborateur(id_agence); 
-
--- 3. Index pour les recherches par dossier / procédure / instance 
-
-CREATE INDEX idx_document_parent ON document(id_dossier, id_procedure, id_instance); 
-CREATE INDEX idx_procedure_dossier ON procedure(id_dossier); 
-CREATE INDEX idx_instance_procedure ON instance_juridique(id_procedure); 
-
--- 4. Index pour les recherches textuelles 
-
-CREATE INDEX idx_client_nom ON client(nom); 
-CREATE INDEX idx_client_email ON client(email); 
- 
-CREATE INDEX idx_collaborateur_nom ON collaborateur(nom); 
+-- Collaborateurs
+CREATE INDEX idx_collaborateur_id_metier ON collaborateur(id_metier);
+CREATE INDEX idx_collaborateur_actif ON collaborateur(actif) WHERE actif = TRUE;
+CREATE INDEX idx_collaborateur_nom ON collaborateur(nom);
 CREATE INDEX idx_collaborateur_email ON collaborateur(email);
-
--- 5. Index JSONB (modèles de documents) 
-
--- Recherche dans les modèles 
-CREATE INDEX idx_modele_document_contenu_json 
-ON modele_document 
-USING GIN (contenu_json); 
- 
--- Recherche dans les versions 
-CREATE INDEX idx_modele_document_version_contenu_json 
-ON modele_document_version 
-USING GIN (contenu_json); 
-
--- 6. Index pour les tables d’association N:N 
-
-CREATE INDEX idx_collab_specialite_collab ON collaborateur_specialite(id_collaborateur); 
-CREATE INDEX idx_collab_specialite_specialite ON collaborateur_specialite(id_specialite); 
- 
-CREATE INDEX idx_collab_equipe_collab ON collaborateur_equipe(id_collaborateur); 
-CREATE INDEX idx_collab_equipe_equipe ON collaborateur_equipe(id_equipe); 
- 
-CREATE INDEX idx_modele_sous_domaine_modele ON modele_sous_domaine(id_modele); 
-CREATE INDEX idx_modele_sous_domaine_sous_domaine ON modele_sous_domaine(id_sous_domaine);
-
--- 7. Index pour les dates (si tu fais des filtres temporels) 
-
-CREATE INDEX idx_dossier_date_ouverture ON dossier(date_ouverture); 
-CREATE INDEX idx_procedure_date_debut ON procedure(date_debut); 
-CREATE INDEX idx_instance_date_debut ON instance_juridique(date_debut); 
-CREATE INDEX idx_document_date_creation ON document(date_creation);
-
--- 8. Index pour les règles d’accès
-
 CREATE INDEX idx_collaborateur_profil ON collaborateur_profil(id_collaborateur, id_profil);
+
+-- Clients
+CREATE INDEX idx_client_id_collaborateur_responsable ON client(id_collaborateur_responsable);
+CREATE INDEX idx_client_nom ON client(nom);
+CREATE INDEX idx_client_email ON client(email);
+
+-- Dossiers
+CREATE INDEX idx_dossier_id_client ON dossier(id_client);
+CREATE INDEX idx_dossier_id_type_dossier ON dossier(id_type_dossier);
+CREATE INDEX idx_dossier_id_statut_dossier ON dossier(id_statut_dossier);
+CREATE INDEX idx_dossier_reference ON dossier(reference);
+CREATE INDEX idx_dossier_date_ouverture ON dossier(date_ouverture);
 CREATE INDEX idx_dossier_agence_client ON dossier(id_agence, id_client);
 
+-- Historique dossier
+CREATE INDEX idx_histo_dossier_id_dossier ON historique_dossier(id_dossier);
+CREATE INDEX idx_histo_dossier_auteur ON historique_dossier(auteur);
+
+-- Factures (composite : couvre ORDER BY date_emission dans les LATERAL joins)
+CREATE INDEX idx_facture_dossier_emission ON facture(id_dossier, date_emission DESC NULLS LAST);
+
+-- Procédures
+CREATE INDEX idx_procedure_id_dossier ON procedure(id_dossier);
+CREATE INDEX idx_procedure_id_type_procedure ON procedure(id_type_procedure);
+CREATE INDEX idx_procedure_id_statut_procedure ON procedure(id_statut_procedure);
+CREATE INDEX idx_procedure_date_debut ON procedure(date_debut);
+
+-- Historique procédure
+CREATE INDEX idx_histo_procedure_id_procedure ON historique_procedure(id_procedure);
+CREATE INDEX idx_histo_procedure_auteur ON historique_procedure(auteur);
+
+-- Instances
+CREATE INDEX idx_instance_id_procedure ON instance_juridique(id_procedure);
+CREATE INDEX idx_instance_id_type_instance ON instance_juridique(id_type_instance);
+CREATE INDEX idx_instance_id_statut_instance ON instance_juridique(id_statut_instance);
+CREATE INDEX idx_instance_date_debut ON instance_juridique(date_debut);
+
+-- Historique instance
+CREATE INDEX idx_histo_instance_id_instance ON historique_instance(id_instance);
+CREATE INDEX idx_histo_instance_auteur ON historique_instance(auteur);
+
+-- Audiences
+CREATE INDEX idx_audience_id_instance ON audience(id_instance);
+CREATE INDEX idx_audience_date_audience ON audience(date_audience);
+
+-- Domaines / Sous-domaines / Spécialités
+CREATE INDEX idx_sous_domaine_id_domaine ON sous_domaine(id_domaine);
+CREATE INDEX idx_specialite_id_sous_domaine ON specialite(id_sous_domaine);
+
+-- Modèles de documents
+CREATE INDEX idx_modele_id_type_document ON modele_document(id_type_document);
+CREATE INDEX idx_modele_version_id_modele ON modele_document_version(id_modele);
+CREATE INDEX idx_paragraphe_id_modele ON paragraphe_predefini(id_modele);
+
+-- Documents
+CREATE INDEX idx_document_id_type_document ON document(id_type_document);
+CREATE INDEX idx_document_id_dossier ON document(id_dossier);
+CREATE INDEX idx_document_id_procedure ON document(id_procedure);
+CREATE INDEX idx_document_id_instance ON document(id_instance);
+CREATE INDEX idx_document_auteur ON document(auteur);
+CREATE INDEX idx_document_id_modele ON document(id_modele);
+CREATE INDEX idx_document_modele_version ON document(id_modele, numero_version_modele);
+CREATE INDEX idx_document_statut_document ON document(statut_document);
+CREATE INDEX idx_document_date_creation ON document(date_creation);
+CREATE INDEX idx_document_parent ON document(id_dossier, id_procedure, id_instance);
+CREATE INDEX idx_document_metadata_json ON document USING GIN (metadata_json);
+
+-- Affectations
+CREATE INDEX idx_affect_dossier_id_collaborateur ON affectation_dossier(id_collaborateur);
+CREATE INDEX idx_affect_dossier_id_dossier ON affectation_dossier(id_dossier);
+CREATE INDEX idx_affect_dossier_id_role ON affectation_dossier(id_role);
+CREATE INDEX idx_affect_procedure_id_collaborateur ON affectation_procedure(id_collaborateur);
+CREATE INDEX idx_affect_procedure_id_procedure ON affectation_procedure(id_procedure);
+CREATE INDEX idx_affect_procedure_id_role ON affectation_procedure(id_role);
+
+-- Tables d'association N:N
+CREATE INDEX idx_collab_specialite_collab ON collaborateur_specialite(id_collaborateur);
+CREATE INDEX idx_collab_specialite_specialite ON collaborateur_specialite(id_specialite);
+CREATE INDEX idx_collab_equipe_collab ON collaborateur_equipe(id_collaborateur);
+CREATE INDEX idx_collab_equipe_equipe ON collaborateur_equipe(id_equipe);
+CREATE INDEX idx_modele_sous_domaine_modele ON modele_sous_domaine(id_modele);
+CREATE INDEX idx_modele_sous_domaine_sous_domaine ON modele_sous_domaine(id_sous_domaine);
