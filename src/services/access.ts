@@ -10,7 +10,8 @@ export type AppRouteName =
   | 'modeles'
   | 'documents'
   | 'schema'
-  | 'parametrage';
+  | 'parametrage'
+  | 'collaborateurs';
 
 export type AppAction =
   | 'dashboard:create-dossier'
@@ -33,6 +34,7 @@ export const routeAccessMatrix: Record<AppRouteName, readonly SessionMetier[]> =
   documents: ['Associee', 'Collaborateur', 'Juriste', 'Assistante'],
   schema: ['Associee', 'Collaborateur'],
   parametrage: ['Associee'],
+  collaborateurs: ['Associee'],
 };
 
 const actionAccessMatrix: Record<AppAction, readonly SessionMetier[]> = {

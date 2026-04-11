@@ -8,3 +8,4 @@ export * from './api/audiencesApi';
 export * from './api/documentsApi';
 export * from './api/modelesApi';
 export * from './api/referenceApi';
+export * from './api/collaborateursApi';

@@ -3048,6 +3048,254 @@ app.delete('/api/agence/:id', async (request, response, next) => {
   }
 });
 
+// =========================================================
+// CRUD Metiers
+// =========================================================
+
+app.get('/api/metier', async (request, response, next) => {
+  try {
+    const result = await query(`SELECT id, libelle FROM metier ORDER BY libelle ASC`);
+    response.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/metier', async (request, response, next) => {
+  try {
+    const libelle = toNullableText(request.body?.libelle);
+    if (!libelle) {
+      response.status(400).json({ message: 'Le libellé est requis.' });
+      return;
+    }
+
+    const result = await query(
+      `INSERT INTO metier (libelle) VALUES ($1) RETURNING id, libelle`,
+      [libelle],
+    );
+    response.status(201).json(result.rows[0]);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/metier/:id', async (request, response, next) => {
+  try {
+    const id = Number(request.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      response.status(400).json({ message: 'ID invalide.' });
+      return;
+    }
+
+    const libelle = toNullableText(request.body?.libelle);
+    if (!libelle) {
+      response.status(400).json({ message: 'Le libellé est requis.' });
+      return;
+    }
+
+    const result = await query(
+      `UPDATE metier SET libelle = $1 WHERE id = $2 RETURNING id, libelle`,
+      [libelle, id],
+    );
+
+    if (result.rows.length === 0) {
+      response.status(404).json({ message: 'Métier introuvable.' });
+      return;
+    }
+
+    response.json(result.rows[0]);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/metier/:id', async (request, response, next) => {
+  try {
+    const id = Number(request.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      response.status(400).json({ message: 'ID invalide.' });
+      return;
+    }
+
+    try {
+      const result = await query(`DELETE FROM metier WHERE id = $1 RETURNING id`, [id]);
+      if (result.rows.length === 0) {
+        response.status(404).json({ message: 'Métier introuvable.' });
+        return;
+      }
+      response.status(204).end();
+    } catch (dbError) {
+      if (dbError.code === '23503') {
+        response.status(409).json({ message: 'Impossible de supprimer : ce métier est associé à des collaborateurs.' });
+        return;
+      }
+      throw dbError;
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+// =========================================================
+// CRUD Collaborateurs
+// =========================================================
+
+app.get('/api/collaborateur', async (request, response, next) => {
+  try {
+    const result = await query(
+      `SELECT c.id,
+              COALESCE(c.nom, '')       AS nom,
+              COALESCE(c.prenom, '')    AS prenom,
+              COALESCE(c.email, '')     AS email,
+              COALESCE(c.telephone, '') AS telephone,
+              c.id_agence               AS "agenceId",
+              COALESCE(a.nom, '')       AS "agenceNom",
+              c.id_metier               AS "metierId",
+              COALESCE(m.libelle, '')   AS "metierLabel",
+              c.date_entree             AS "dateEntree",
+              c.actif
+         FROM collaborateur c
+         LEFT JOIN agence a ON a.id = c.id_agence
+         LEFT JOIN metier m ON m.id = c.id_metier
+        ORDER BY c.nom ASC, c.prenom ASC`,
+    );
+    response.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/collaborateur', async (request, response, next) => {
+  try {
+    const nom = toNullableText(request.body?.nom);
+    const prenom = toNullableText(request.body?.prenom);
+    if (!nom) {
+      response.status(400).json({ message: 'Le nom est requis.' });
+      return;
+    }
+
+    const email = toNullableText(request.body?.email);
+    const telephone = toNullableText(request.body?.telephone);
+    const agenceId = request.body?.agenceId ? Number(request.body.agenceId) : null;
+    const metierId = request.body?.metierId ? Number(request.body.metierId) : null;
+    const dateEntree = toNullableText(request.body?.dateEntree);
+    const actif = request.body?.actif !== undefined ? Boolean(request.body.actif) : true;
+
+    const result = await query(
+      `INSERT INTO collaborateur (nom, prenom, email, telephone, id_agence, id_metier, date_entree, actif)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING id,
+                   COALESCE(nom, '')       AS nom,
+                   COALESCE(prenom, '')    AS prenom,
+                   COALESCE(email, '')     AS email,
+                   COALESCE(telephone, '') AS telephone,
+                   id_agence               AS "agenceId",
+                   id_metier               AS "metierId",
+                   date_entree             AS "dateEntree",
+                   actif`,
+      [nom, prenom, email, telephone, agenceId, metierId, dateEntree || null, actif],
+    );
+
+    const row = result.rows[0];
+    // Resolve labels for the response
+    const agenceRow = row.agenceId ? (await query(`SELECT nom FROM agence WHERE id = $1`, [row.agenceId])).rows[0] : null;
+    const metierRow = row.metierId ? (await query(`SELECT libelle FROM metier WHERE id = $1`, [row.metierId])).rows[0] : null;
+
+    response.status(201).json({
+      ...row,
+      agenceNom: agenceRow?.nom ?? '',
+      metierLabel: metierRow?.libelle ?? '',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/collaborateur/:id', async (request, response, next) => {
+  try {
+    const id = Number(request.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      response.status(400).json({ message: 'ID invalide.' });
+      return;
+    }
+
+    const nom = toNullableText(request.body?.nom);
+    if (!nom) {
+      response.status(400).json({ message: 'Le nom est requis.' });
+      return;
+    }
+
+    const prenom = toNullableText(request.body?.prenom);
+    const email = toNullableText(request.body?.email);
+    const telephone = toNullableText(request.body?.telephone);
+    const agenceId = request.body?.agenceId ? Number(request.body.agenceId) : null;
+    const metierId = request.body?.metierId ? Number(request.body.metierId) : null;
+    const dateEntree = toNullableText(request.body?.dateEntree);
+    const actif = request.body?.actif !== undefined ? Boolean(request.body.actif) : true;
+
+    const result = await query(
+      `UPDATE collaborateur
+            SET nom = $1, prenom = $2, email = $3, telephone = $4,
+                id_agence = $5, id_metier = $6, date_entree = $7, actif = $8
+          WHERE id = $9
+         RETURNING id,
+                   COALESCE(nom, '')       AS nom,
+                   COALESCE(prenom, '')    AS prenom,
+                   COALESCE(email, '')     AS email,
+                   COALESCE(telephone, '') AS telephone,
+                   id_agence               AS "agenceId",
+                   id_metier               AS "metierId",
+                   date_entree             AS "dateEntree",
+                   actif`,
+      [nom, prenom, email, telephone, agenceId, metierId, dateEntree || null, actif, id],
+    );
+
+    if (result.rows.length === 0) {
+      response.status(404).json({ message: 'Collaborateur introuvable.' });
+      return;
+    }
+
+    const row = result.rows[0];
+    const agenceRow = row.agenceId ? (await query(`SELECT nom FROM agence WHERE id = $1`, [row.agenceId])).rows[0] : null;
+    const metierRow = row.metierId ? (await query(`SELECT libelle FROM metier WHERE id = $1`, [row.metierId])).rows[0] : null;
+
+    response.json({
+      ...row,
+      agenceNom: agenceRow?.nom ?? '',
+      metierLabel: metierRow?.libelle ?? '',
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/collaborateur/:id', async (request, response, next) => {
+  try {
+    const id = Number(request.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      response.status(400).json({ message: 'ID invalide.' });
+      return;
+    }
+
+    try {
+      const result = await query(`DELETE FROM collaborateur WHERE id = $1 RETURNING id`, [id]);
+      if (result.rows.length === 0) {
+        response.status(404).json({ message: 'Collaborateur introuvable.' });
+        return;
+      }
+      response.status(204).end();
+    } catch (dbError) {
+      if (dbError.code === '23503') {
+        response.status(409).json({ message: 'Impossible de supprimer : ce collaborateur est référencé dans des dossiers ou documents.' });
+        return;
+      }
+      throw dbError;
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.use(express.static(distPath));
 app.get(/^(?!\/api(?:\/|$)).*/, (request, response) => {
   response.sendFile(path.join(distPath, 'index.html'));

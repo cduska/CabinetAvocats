@@ -115,9 +115,19 @@ export interface Collaborateur {
   id: number;
   nom: string;
   prenom: string;
-  metier: string;
   email: string;
+  telephone: string;
+  agenceId: number | null;
+  agenceNom: string;
+  metierId: number | null;
+  metierLabel: string;
+  dateEntree: string | null;
   actif: boolean;
+}
+
+export interface Metier {
+  id: number;
+  libelle: string;
 }
 
 export interface DashboardMetric {

@@ -8,6 +8,7 @@ import ModelesPage from '../pages/ModelesPage.vue';
 import AudiencesPage from '../pages/AudiencesPage.vue';
 import SchemaPage from '../pages/SchemaPage.vue';
 import ParametragePage from '../pages/ParametragePage.vue';
+import CollaborateursPage from '../pages/CollaborateursPage.vue';
 import { getFirstAccessibleRoute, isRouteName, routeAccessMatrix } from '../services/access';
 import { getCurrentMetier } from '../services/session';
 
@@ -108,6 +109,15 @@ const routes: RouteRecordRaw[] = [
         meta: {
           title: 'Parametrage',
           allowedMetiers: routeAccessMatrix.parametrage,
+        },
+      },
+      {
+        path: '/collaborateurs',
+        name: 'collaborateurs',
+        component: CollaborateursPage,
+        meta: {
+          title: 'Collaborateurs',
+          allowedMetiers: routeAccessMatrix.collaborateurs,
         },
       },
     ],

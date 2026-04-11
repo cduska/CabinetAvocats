@@ -14,6 +14,25 @@ let neonTokenFetchPromise: Promise<string> | null = null;
 let neonTokenLastMissAt = 0;
 const NEON_TOKEN_RETRY_MS = 15000;
 
+// Decode the `exp` claim from a JWT without verifying the signature.
+// Returns true when the token is expired or cannot be parsed.
+function isJwtExpired(token: string): boolean {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return true;
+    // base64url → base64
+    const b64 = parts[1].replaceAll('-', '+').replaceAll('_', '/').padEnd(
+      parts[1].length + ((4 - (parts[1].length % 4)) % 4), '=',
+    );
+    const payload = JSON.parse(atob(b64)) as Record<string, unknown>;
+    if (typeof payload.exp !== 'number') return false; // no exp = never expires
+    // Add a 30-second buffer to account for clock skew.
+    return payload.exp < Math.floor(Date.now() / 1000) + 30;
+  } catch {
+    return true;
+  }
+}
+
 function getApiBaseUrl(): string {
   const raw = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
   if (!raw) {
@@ -133,10 +152,19 @@ export function getNeonAuthTokenSource(): 'localStorage' | 'sessionStorage' | 'e
 export function getNeonAuthToken(): string {
   const storageToken = readBrowserStorageToken(NEON_TOKEN_STORAGE_KEYS);
   if (storageToken) {
+    if (isJwtExpired(storageToken)) {
+      // Proactively clear the stale token so ensureNeonAuthToken will re-fetch.
+      clearNeonAuthToken();
+      return '';
+    }
     return storageToken;
   }
 
-  return String(import.meta.env.VITE_NEON_AUTH_BEARER ?? '').trim();
+  const envToken = String(import.meta.env.VITE_NEON_AUTH_BEARER ?? '').trim();
+  if (envToken && isJwtExpired(envToken)) {
+    return '';
+  }
+  return envToken;
 }
 
 function isNeonAutoTokenEnabled(): boolean {
@@ -238,9 +266,8 @@ function resolveNeonResourceUrl(path: string): string {
   return `${baseUrl}${normalizedPath}`;
 }
 
-export async function requestNeonRest<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers);
-
+async function buildNeonHeaders(existingHeaders?: HeadersInit): Promise<Headers> {
+  const headers = new Headers(existingHeaders);
   const token = (await ensureNeonAuthToken()) || getNeonAuthToken();
   if (token && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`);
@@ -251,18 +278,34 @@ export async function requestNeonRest<T>(path: string, init?: RequestInit): Prom
   if (!headers.has('Accept')) {
     headers.set('Accept', 'application/json');
   }
+  return headers;
+}
 
-  const response = await fetch(resolveNeonResourceUrl(path), {
-    ...init,
-    headers,
-  });
+export async function requestNeonRest<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = await buildNeonHeaders(init?.headers);
+
+  const response = await fetch(resolveNeonResourceUrl(path), { ...init, headers });
+
+  // On 401, the stored token may be stale/expired — clear it, fetch a fresh one
+  // and retry the request exactly once.
+  if (response.status === 401) {
+    clearNeonAuthToken();
+    neonTokenLastMissAt = 0;
+    const retryHeaders = await buildNeonHeaders(init?.headers);
+    const retryResponse = await fetch(resolveNeonResourceUrl(path), { ...init, headers: retryHeaders });
+    if (!retryResponse.ok) {
+      const message = await retryResponse.text();
+      throw new Error(message || `Neon Data API request failed after token refresh (${retryResponse.status})`);
+    }
+    if (retryResponse.status === 204) return undefined as T;
+    return retryResponse.json() as Promise<T>;
+  }
 
   if (!response.ok) {
     const message = await response.text();
-    if (response.status === 401 || response.status === 403) {
-      throw new Error(message || 'Acces Neon refuse (401/403). Verifiez la configuration Neon Auth/Data API et la session JWT.');
+    if (response.status === 403) {
+      throw new Error(message || 'Acces Neon refuse (403). Verifiez la configuration Neon Auth/Data API et la session JWT.');
     }
-
     throw new Error(message || `Neon Data API request failed (${response.status})`);
   }
 
@@ -273,26 +316,23 @@ export async function requestNeonRest<T>(path: string, init?: RequestInit): Prom
   return response.json() as Promise<T>;
 }
 
-export async function requestNeonCount(path: string): Promise<number> {
-  const headers = new Headers();
-  const token = (await ensureNeonAuthToken()) || getNeonAuthToken();
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
-
+async function doNeonCount(path: string): Promise<Response> {
+  const headers = await buildNeonHeaders();
   headers.set('Prefer', 'count=exact');
+  return fetch(resolveNeonResourceUrl(path), { method: 'GET', headers });
+}
 
-  const response = await fetch(resolveNeonResourceUrl(path), {
-    method: 'GET',
-    headers,
-  });
+export async function requestNeonCount(path: string): Promise<number> {
+  let response = await doNeonCount(path);
+
+  if (response.status === 401) {
+    clearNeonAuthToken();
+    neonTokenLastMissAt = 0;
+    response = await doNeonCount(path);
+  }
 
   if (!response.ok) {
     const message = await response.text();
-    if (response.status === 401 || response.status === 403) {
-      throw new Error(message || 'Acces Neon refuse (401/403). Verifiez la configuration Neon Auth/Data API et la session JWT.');
-    }
-
     throw new Error(message || `Neon Data API count request failed (${response.status})`);
   }
 
