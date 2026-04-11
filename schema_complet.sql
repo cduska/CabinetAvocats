@@ -148,6 +148,11 @@ CREATE TABLE role_affectation (
 
 -- =========================================================
 -- 6. DOSSIERS & FACTURES
+-- =========================================================
+
+CREATE TABLE dossier (
+   id SERIAL PRIMARY KEY,
+   id_agence INT REFERENCES agence(id),
    id_client INT REFERENCES client(id), 
    id_type_dossier INT REFERENCES type_dossier(id), 
    id_statut_dossier INT REFERENCES statut_dossier(id), 
