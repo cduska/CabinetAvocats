@@ -20,6 +20,8 @@ import {
   updateProcedure,
   updateDossier,
 } from '../services/api';
+import { decryptInformationsSecretes } from '../services/api/dossiersApi';
+import { useSession } from '../services/session';
 import { getStatusColorClass } from '../services/status';
 import type {
   Agence,
@@ -69,6 +71,13 @@ const procedureSaveError = ref('');
 const procedureLastSavedAt = ref('');
 const unresolvedProcedureStatut = ref('');
 const unresolvedProcedureType = ref('');
+
+// Session & secret
+const { state: sessionState } = useSession();
+const isAssociee = computed(() => sessionState.metier === 'Associee');
+const secretDecrypted = ref(false);
+const secretLoading = ref(false);
+const secretError = ref('');
 const instanceDrawerOpen = ref(false);
 const selectedInstanceId = ref<number | null>(null);
 const isLoadingInstanceReferences = ref(false);
@@ -104,6 +113,7 @@ const form = reactive({
   ouverture: '',
   echeance: '',
   montant: 0,
+  informationsSecretes: null as string | null,
 });
 
 const unresolvedReferences = reactive({
@@ -251,6 +261,9 @@ function hydrateFormFromDossier(apiDossier: Dossier) {
   form.ouverture = apiDossier.ouverture;
   form.echeance = apiDossier.echeance;
   form.montant = apiDossier.montant;
+  form.informationsSecretes = null;
+  secretDecrypted.value = false;
+  secretError.value = '';
   unresolvedReferences.client = getUnresolvedReferenceLabel(apiDossier.client, resolvedClientId);
   unresolvedReferences.type = getUnresolvedReferenceLabel(apiDossier.type, resolvedTypeId);
   unresolvedReferences.statut = getUnresolvedReferenceLabel(apiDossier.statut, resolvedStatutId);
@@ -566,6 +579,20 @@ function closeEditDrawer() {
   editDrawerOpen.value = false;
 }
 
+async function decryptSecret() {
+  secretLoading.value = true;
+  secretError.value = '';
+  try {
+    const value = await decryptInformationsSecretes(dossierId);
+    form.informationsSecretes = value ?? '';
+    secretDecrypted.value = true;
+  } catch (error) {
+    secretError.value = error instanceof Error ? error.message : 'Erreur lors du déchiffrement.';
+  } finally {
+    secretLoading.value = false;
+  }
+}
+
 async function saveDossier() {
   if (
     !dossier.value
@@ -592,6 +619,9 @@ async function saveDossier() {
       ouverture: form.ouverture,
       echeance: form.echeance,
       montant: Number(form.montant ?? 0),
+      ...(isAssociee.value && secretDecrypted.value
+        ? { informationsSecretes: form.informationsSecretes || null }
+        : {}),
     });
 
     dossier.value = updated;
@@ -1009,6 +1039,37 @@ function goBackToDossiers() {
             Montant HT
             <input v-model.number="form.montant" class="input" type="number" min="0" step="100" />
           </label>
+
+          <template v-if="isAssociee">
+            <div class="secret-field">
+              <p class="secret-field-label">Informations confidentielles</p>
+              <template v-if="!secretDecrypted">
+                <div class="secret-field-locked">
+                  <span class="secret-field-placeholder">
+                    {{ dossier?.informationsSecretesSet ? '••••••••••••  (contenu chiffré)' : 'Aucune donnée confidentielle' }}
+                  </span>
+                  <button
+                    class="button button-secondary secret-field-btn"
+                    type="button"
+                    :disabled="secretLoading"
+                    @click="decryptSecret"
+                  >
+                    {{ secretLoading ? 'Déchiffrement...' : 'Déchiffrer' }}
+                  </button>
+                </div>
+                <p v-if="secretError" class="autosave-error">{{ secretError }}</p>
+              </template>
+              <template v-else>
+                <textarea
+                  v-model="form.informationsSecretes"
+                  class="input secret-field-textarea"
+                  rows="5"
+                  placeholder="Contenu confidentiel déchiffré. Vider le champ pour supprimer."
+                />
+                <p class="action-bar-caption">Champ déchiffré — sera rechiffré à l'enregistrement.</p>
+              </template>
+            </div>
+          </template>
         </form>
 
         <template #footer>
@@ -1398,6 +1459,48 @@ function goBackToDossiers() {
   margin: 0.45rem 0 0;
   color: #8c5a00;
   font-size: 0.9rem;
+}
+
+.secret-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.secret-field-label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--color-text, #111);
+  margin: 0;
+}
+
+.secret-field-locked {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.75rem;
+  background: #f5f0ff;
+  border: 1px solid #c4aef0;
+  border-radius: 6px;
+}
+
+.secret-field-placeholder {
+  flex: 1;
+  font-family: monospace;
+  color: #6b44c4;
+  font-size: 0.95rem;
+  letter-spacing: 0.05em;
+}
+
+.secret-field-btn {
+  flex-shrink: 0;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.85rem;
+}
+
+.secret-field-textarea {
+  font-family: inherit;
+  resize: vertical;
 }
 
 @media (max-width: 1320px) {

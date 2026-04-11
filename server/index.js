@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { query, testConnection } from './db.js';
 import { extractBearerToken, validateNeonToken } from './neon-jwt.js';
+import { encrypt as vaultEncrypt, decrypt as vaultDecrypt } from './vault.js';
 
 dotenv.config();
 
@@ -501,7 +502,8 @@ async function getDossierById(dossierId) {
         COALESCE(a.nom, a.ville, 'Non renseignee') AS agence,
         COALESCE(to_char(d.date_ouverture, 'YYYY-MM-DD'), '') AS ouverture,
         COALESCE(to_char(d.date_cloture, 'YYYY-MM-DD'), '') AS echeance,
-        COALESCE(latest_facture.montant, 0)::float8 AS montant
+        COALESCE(latest_facture.montant, 0)::float8 AS montant,
+        (d.informations_secretes IS NOT NULL) AS "informationsSecretesSet"
       FROM dossier d
       LEFT JOIN client c ON c.id = d.id_client
       LEFT JOIN type_dossier td ON td.id = d.id_type_dossier
@@ -1670,6 +1672,10 @@ app.post('/api/dossiers', async (request, response, next) => {
     const dateEcheance = toNullableText(request.body.echeance);
     const montant = Number(request.body.montant ?? 0);
 
+    const isAssociee = getSessionContext(request).metier?.toLowerCase() === 'associee';
+    const secretRaw = isAssociee ? toNullableText(request.body.informationsSecretes) : null;
+    const secretEncrypted = secretRaw ? vaultEncrypt(secretRaw) : null;
+
     const inserted = await query(
       `
         INSERT INTO dossier (
@@ -1679,12 +1685,13 @@ app.post('/api/dossiers', async (request, response, next) => {
           id_statut_dossier,
           reference,
           date_ouverture,
-          date_cloture
+          date_cloture,
+          informations_secretes
         )
-        VALUES ($1, $2, $3, $4, $5, $6::date, $7::date)
+        VALUES ($1, $2, $3, $4, $5, $6::date, $7::date, $8)
         RETURNING id
       `,
-      [agenceId, clientId, typeId, statutId, reference, dateOuverture, dateEcheance],
+      [agenceId, clientId, typeId, statutId, reference, dateOuverture, dateEcheance, secretEncrypted],
     );
 
     if (Number.isFinite(montant) && montant > 0) {
@@ -1762,6 +1769,15 @@ app.put('/api/dossiers/:id', async (request, response, next) => {
     const dateEcheance = toNullableText(request.body.echeance);
     const montant = Number(request.body.montant ?? 0);
 
+    const isAssocieeUpdate = getSessionContext(request).metier?.toLowerCase() === 'associee';
+    let secretUpdateClause = '';
+    let secretUpdateValue = undefined;
+    if (isAssocieeUpdate && 'informationsSecretes' in request.body) {
+      const secretRaw = toNullableText(request.body.informationsSecretes);
+      secretUpdateValue = secretRaw ? vaultEncrypt(secretRaw) : null;
+      secretUpdateClause = ',\n            informations_secretes = $9';
+    }
+
     await query(
       `
         UPDATE dossier
@@ -1771,10 +1787,12 @@ app.put('/api/dossiers/:id', async (request, response, next) => {
             id_statut_dossier = $4,
             reference = $5,
             date_ouverture = $6::date,
-            date_cloture = $7::date
+            date_cloture = $7::date${secretUpdateClause}
         WHERE id = $8
       `,
-      [agenceId, clientId, typeId, statutId, reference, dateOuverture, dateEcheance, dossierId],
+      secretUpdateValue !== undefined
+        ? [agenceId, clientId, typeId, statutId, reference, dateOuverture, dateEcheance, dossierId, secretUpdateValue]
+        : [agenceId, clientId, typeId, statutId, reference, dateOuverture, dateEcheance, dossierId],
     );
 
     if (Number.isFinite(montant)) {
@@ -1815,6 +1833,41 @@ app.put('/api/dossiers/:id', async (request, response, next) => {
       return;
     }
     response.json(row);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ---------------------------------------------------------------
+// Déchiffrement des informations secrètes — réservé aux Associé(e)s
+// ---------------------------------------------------------------
+app.post('/api/dossiers/:id/decrypt', async (request, response, next) => {
+  try {
+    const sessionContext = getSessionContext(request);
+    if (sessionContext.metier?.toLowerCase() !== 'associee') {
+      response.status(403).json({ message: 'Accès réservé aux associé(e)s.' });
+      return;
+    }
+
+    const dossierId = Number(request.params.id);
+    if (!Number.isFinite(dossierId)) {
+      response.status(400).json({ message: 'ID dossier invalide.' });
+      return;
+    }
+
+    const result = await query(
+      'SELECT informations_secretes FROM dossier WHERE id = $1',
+      [dossierId],
+    );
+
+    const encrypted = result.rows[0]?.informations_secretes ?? null;
+    if (!encrypted) {
+      response.json({ value: null });
+      return;
+    }
+
+    const value = vaultDecrypt(encrypted);
+    response.json({ value });
   } catch (error) {
     next(error);
   }

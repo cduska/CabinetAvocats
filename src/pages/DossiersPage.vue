@@ -39,6 +39,7 @@ const form = reactive({
   ouverture: new Date().toISOString().slice(0, 10),
   echeance: '',
   montant: 0,
+  informationsSecretes: '',
 });
 
 const statuts = ref<StatutDossier[]>([]);
@@ -134,6 +135,7 @@ function resetForm(): void {
   form.ouverture = new Date().toISOString().slice(0, 10);
   form.echeance = '';
   form.montant = 0;
+  form.informationsSecretes = '';
 
   const defaultAgence = allowedCreateAgences.value[0]?.id ?? null;
   form.agence = defaultAgence;
@@ -191,6 +193,9 @@ async function createDossier(): Promise<void> {
       ouverture: form.ouverture,
       echeance: form.echeance,
       montant: form.montant,
+      ...(sessionState.metier === 'Associee' && form.informationsSecretes
+        ? { informationsSecretes: form.informationsSecretes }
+        : {}),
     });
 
     rows.value.unshift(created);
@@ -316,6 +321,18 @@ async function createDossier(): Promise<void> {
             Montant HT
             <input v-model.number="form.montant" class="input" type="number" min="0" step="100" />
           </label>
+          <template v-if="sessionState.metier === 'Associee'">
+            <label>
+              Informations confidentielles
+              <textarea
+                v-model="form.informationsSecretes"
+                class="input"
+                rows="4"
+                placeholder="Saisie reservee à l'associé(e). Contenu chiffré automatiquement."
+              />
+              <p class="action-bar-caption">Champ chiffré — visible uniquement après déchiffrement par un(e) associé(e).</p>
+            </label>
+          </template>
         </template>
       </form>
 

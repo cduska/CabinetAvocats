@@ -50,6 +50,7 @@ function mapNeonDossier(row: NeonDossierRow): Dossier {
     ouverture: row.date_ouverture ?? '',
     echeance: row.date_cloture ?? '',
     montant: pickLatestFactureMontant(row.facture),
+    informationsSecretesSet: false,
   };
 }
 
@@ -119,6 +120,7 @@ export async function updateDossier(id: number, payload: {
   ouverture: string;
   echeance: string;
   montant: number;
+  informationsSecretes?: string | null;
 }) {
   const query = toQueryString({ agence: payload.agence });
   return requestJson<Dossier>(`/api/dossiers/${id}${query}`, {
@@ -136,9 +138,17 @@ export async function createDossier(payload: {
   ouverture: string;
   echeance: string;
   montant: number;
+  informationsSecretes?: string | null;
 }) {
   return requestJson<Dossier>('/api/dossiers', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
+}
+
+export async function decryptInformationsSecretes(dossierId: number): Promise<string | null> {
+  const result = await requestJson<{ value: string | null }>(`/api/dossiers/${dossierId}/decrypt`, {
+    method: 'POST',
+  });
+  return result.value;
 }

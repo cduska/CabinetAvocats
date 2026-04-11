@@ -35,6 +35,7 @@ export interface Dossier {
   ouverture: string;
   echeance: string;
   montant: number;
+  informationsSecretesSet?: boolean;
 }
 
 export interface ProcedureItem {
