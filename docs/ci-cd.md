@@ -107,6 +107,23 @@ push / pull_request -> main
 
 ---
 
+## Pages et fonctionnalités disponibles en production
+
+| Page | Lecture (Neon Data API) | Écriture (Express backend) |
+|---|---|---|
+| Dashboard | ✅ | — |
+| Clients | ✅ | ❌ (backend requis) |
+| Dossiers | ✅ | ❌ |
+| Documents | ✅ | ❌ |
+| Audiences | ✅ | ❌ |
+| Modèles | ✅ | ❌ |
+| Paramétrage (référentiels) | ✅ | ❌ |
+| **Collaborateurs & Métiers** | ✅ | ❌ |
+
+> Accès réservé à `Associee` pour les pages Paramétrage et Collaborateurs.
+
+---
+
 ## Secrets GitHub requis
 
 | Secret | Obligatoire | Description |

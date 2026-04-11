@@ -118,8 +118,9 @@ Chaque fichier API expose deux modes via le flag `isNeonDataApiEnabled()` :
 | `dashboardApi.ts` | `dossier`, `procedure`, `audience`, `document`, `statut_dossier`, `agence` (counts via `Prefer: count=exact`) |
 | `referenceApi.ts` | `statut_dossier`, `statut_procedure`, `type_procedure`, `type_document`, `type_instance`, `statut_instance`, `type_dossier`, `agence` |
 | `proceduresApi.ts` | `procedure`, `type_procedure`, `statut_procedure`, `dossier`, `agence` |
+| `collaborateursApi.ts` | `collaborateur`, `metier`, `agence` (backend Express uniquement) |
 
-> **Opérations d'écriture (POST / PUT / DELETE)** : quelle que soit la valeur de `VITE_USE_NEON_DATA_API`, les mutations (création, modification, suppression) pour les clients et les tables de référentiel passent **toujours** par le backend Express local (`/api/...`). Neon Data API (PostgREST) n'est utilisé qu'en **lecture**. En production (GitHub Pages), les fonctions de création/édition ne sont donc pas disponibles sans accès au backend.
+> **Opérations d'écriture (POST / PUT / DELETE)** : quelle que soit la valeur de `VITE_USE_NEON_DATA_API`, les mutations (création, modification, suppression) passent **toujours** par le backend Express local (`/api/...`). Neon Data API (PostgREST) n'est utilisé qu'en **lecture**. En production (GitHub Pages), les fonctions de création/édition ne sont donc pas disponibles sans accès au backend.
 
 ### Syntaxe de filtre d'agence (PostgREST)
 
@@ -129,6 +130,25 @@ Pour filtrer sur une table embarquée, utiliser `table.or=(col.ilike.*val*)` :
 ✅  agence.or=(nom.ilike.*lyon*,ville.ilike.*lyon*)
 ❌  or=(agence.nom.ilike.*lyon*,agence.ville.ilike.*lyon*)   → PGRST100
 ```
+
+---
+
+## Gestion de l'expiry du JWT
+
+Le JWT anonyme/utilisateur a une durée de vie limitée (champ `exp`). La logique de renouvellement est centralisée dans `buildNeonHeaders()` (`src/services/api/utils.ts`) :
+
+1. **Token valide** → utilisé directement.
+2. **Token expiré + SDK disponible** (`VITE_NEON_AUTH_URL` configuré) → `fetchJwtFromNeonSdk()` est appelé, le nouveau token est stocké dans `localStorage`.
+3. **Token expiré + SDK indisponible** → le token périmé est renvoyé tel quel pour que le serveur retourne une erreur descriptive (`JWT expired`) plutôt que `missing credentials`.
+4. **Réponse HTTP 401 reçue** (token refusé) → clear du localStorage, `neonTokenLastMissAt` remis à zéro, nouveau token tenté via SDK, requête rejouée une seule fois.
+
+### Comportement visible
+
+| Situation | Affiché dans l'UI |
+|---|---|
+| Renouvellement automatique réussi | Rien (transparent) |
+| SDK absent / JWT non renouvelable | Erreur `JWT token has expired` |
+| Aucun token stocké | `Token Neon manquant` |
 
 ---
 
