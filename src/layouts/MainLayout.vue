@@ -3,10 +3,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
 import { getFirstAccessibleRoute, isRouteName, useAccessControl, type AppRouteName } from '../services/access';
 import {
-  getNeonAuthBaseUrl,
   getNeonAuthToken,
   getNeonAuthTokenSource,
-  getNeonDataApiBaseUrl,
   isNeonDataApiEnabled,
   onNeonAuthTokenChange,
 } from '../services/api/utils';
@@ -84,7 +82,6 @@ function refreshNeonTokenState(): void {
   neonTokenSource.value = getNeonAuthTokenSource();
 }
 
-const neonTokenAvailable = computed(() => Boolean(neonTokenValue.value));
 const neonAuthSessionState = ref<'active' | 'inactive' | 'unavailable'>('unavailable');
 
 async function refreshNeonAuthSessionState(): Promise<void> {
