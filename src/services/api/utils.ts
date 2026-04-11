@@ -150,21 +150,14 @@ export function getNeonAuthTokenSource(): 'localStorage' | 'sessionStorage' | 'e
 }
 
 export function getNeonAuthToken(): string {
+  // Always returns the stored token without checking expiry.
+  // Expiry-aware refresh is handled in buildNeonHeaders().
   const storageToken = readBrowserStorageToken(NEON_TOKEN_STORAGE_KEYS);
   if (storageToken) {
-    if (isJwtExpired(storageToken)) {
-      // Proactively clear the stale token so ensureNeonAuthToken will re-fetch.
-      clearNeonAuthToken();
-      return '';
-    }
     return storageToken;
   }
 
-  const envToken = String(import.meta.env.VITE_NEON_AUTH_BEARER ?? '').trim();
-  if (envToken && isJwtExpired(envToken)) {
-    return '';
-  }
-  return envToken;
+  return String(import.meta.env.VITE_NEON_AUTH_BEARER ?? '').trim();
 }
 
 function isNeonAutoTokenEnabled(): boolean {
@@ -268,7 +261,30 @@ function resolveNeonResourceUrl(path: string): string {
 
 async function buildNeonHeaders(existingHeaders?: HeadersInit): Promise<Headers> {
   const headers = new Headers(existingHeaders);
-  const token = (await ensureNeonAuthToken()) || getNeonAuthToken();
+  let token = getNeonAuthToken();
+
+  if (!token) {
+    // No token at all: try the SDK.
+    token = await ensureNeonAuthToken();
+  } else if (isJwtExpired(token) && isNeonDataApiEnabled() && isNeonAutoTokenEnabled()) {
+    // Token is expired: attempt a proactive refresh via the SDK.
+    // Clear the stale value first so the SDK fetch is not skipped.
+    const stale = token;
+    clearNeonAuthToken();
+    neonTokenLastMissAt = 0;
+    const fresh = await fetchJwtFromNeonSdk().then((t) => t.trim()).catch(() => '');
+    if (fresh) {
+      setNeonAuthToken(fresh);
+      token = fresh;
+    } else {
+      // SDK could not supply a fresh token (e.g. VITE_NEON_AUTH_URL not set).
+      // Restore the stale token so the request still carries credentials;
+      // the server will return a descriptive error rather than "missing credentials".
+      setNeonAuthToken(stale);
+      token = stale;
+    }
+  }
+
   if (token && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`);
   }
