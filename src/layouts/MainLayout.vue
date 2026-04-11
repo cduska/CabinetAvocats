@@ -75,9 +75,6 @@ const userInitials = computed(() => {
   const last = (currentUser.value?.lastName ?? '').trim().charAt(0).toUpperCase();
   return `${first}${last}` || 'CA';
 });
-const agencyLabel = computed(() => {
-  return currentAgency.value?.name || 'Cabinet Avocats';
-});
 const isNeonMode = computed(() => isNeonDataApiEnabled());
 const neonTokenValue = ref(getNeonAuthToken().trim());
 const neonTokenSource = ref(getNeonAuthTokenSource());
@@ -94,35 +91,6 @@ async function refreshNeonAuthSessionState(): Promise<void> {
   neonAuthSessionState.value = await getNeonAuthSessionState();
 }
 
-// Distinguish between: authenticated user session, anonymous token (no user login
-// but Data API works), and no token at all.
-const neonAuthSessionLabel = computed(() => {
-  if (neonAuthSessionState.value === 'active') {
-    return 'oui (utilisateur connecte)';
-  }
-  if (neonAuthSessionState.value === 'inactive') {
-    // Token may still be present via anonymous JWT — check the source
-    return neonTokenAvailable.value ? 'non (token anonyme actif)' : 'non (aucun token)';
-  }
-  return 'indisponible';
-});
-
-const neonTokenSourceLabel = computed(() => {
-  const source = neonTokenSource.value;
-  if (source === 'localStorage') {
-    return 'localStorage';
-  }
-  if (source === 'sessionStorage') {
-    return 'sessionStorage';
-  }
-  if (source === 'env') {
-    return 'variable VITE_NEON_AUTH_BEARER';
-  }
-  return 'aucune source detectee';
-});
-const neonDataApiUrlLabel = computed(() => getNeonDataApiBaseUrl() || 'non configuree');
-const neonAuthUrlLabel = computed(() => getNeonAuthBaseUrl() || 'non configuree');
-const neonSessionReady = computed(() => Boolean(currentUser.value && currentAgency.value));
 const activeSessionLabel = computed(() => {
   if (!currentUser.value || !currentAgency.value) {
     return 'Aucune session active';
