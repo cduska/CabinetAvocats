@@ -444,7 +444,7 @@ RETURNS jsonb LANGUAGE sql IMMUTABLE AS $$
         END
         ORDER BY ordinality
       )
-      FROM jsonb_array_elements(doc->'blocks') WITH ORDINALITY AS block
+      FROM jsonb_array_elements(doc->'blocks') WITH ORDINALITY AS t(block, ordinality)
     )
   )
 $$;
