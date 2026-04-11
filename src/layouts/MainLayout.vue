@@ -222,35 +222,16 @@ function onUserChange(event: Event): void {
       <header class="topbar">
         <div class="topbar-identity">
           <div class="topbar-signature">
-            <div class="topbar-signature-main">
-              <span class="topbar-signature-mark">CA</span>
-              <p class="topbar-signature-agency">{{ agencyLabel }}</p>
-            </div>
+            <span class="topbar-signature-mark">CA</span>
             <span class="topbar-user-avatar" :title="activeSessionLabel">{{ userInitials }}</span>
           </div>
           <p class="topbar-kicker">{{ greetingLabel }}</p>
           <h1>{{ pageTitle }}</h1>
           <p class="topbar-date">{{ todayLabel }}</p>
-          <p class="topbar-session" data-cy="active-session">Session: {{ activeSessionLabel }}</p>
           <div class="topbar-badges">
             <span class="topbar-badge" :class="isNeonMode ? 'is-neon' : 'is-local'">
               {{ isNeonMode ? 'Mode Neon Data API' : 'Mode API locale' }}
             </span>
-            <span v-if="isNeonMode" class="topbar-badge" :class="neonTokenAvailable ? 'is-ready' : 'is-missing'">
-              {{ neonTokenAvailable
-                ? neonAuthSessionState === 'active' ? 'Connecte' : 'Token anonyme'
-                : 'Token Neon manquant' }}
-            </span>
-          </div>
-          <div v-if="isNeonMode" class="topbar-neon-diagnostics" data-cy="neon-diagnostics">
-            <p>
-              <strong>Diagnostic Neon</strong>
-            </p>
-            <p>Data API: {{ neonDataApiUrlLabel }}</p>
-            <p>Neon Auth: {{ neonAuthUrlLabel }}</p>
-            <p>Utilisateur: {{ neonAuthSessionLabel }}</p>
-            <p>Token: {{ neonTokenSourceLabel }}</p>
-            <p>Session app: {{ neonSessionReady ? 'oui' : 'non' }}</p>
           </div>
         </div>
 
