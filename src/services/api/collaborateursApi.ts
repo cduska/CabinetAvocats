@@ -1,4 +1,4 @@
-import type { Collaborateur, Metier } from '../../types/domain';
+import type { AffectationDossier, AffectationProcedure, Collaborateur, Metier, RoleAffectation } from '../../types/domain';
 import { requestJson } from './utils';
 
 // =========================================================
@@ -62,4 +62,67 @@ export async function updateCollaborateur(id: number, payload: CollaborateurPayl
 
 export async function deleteCollaborateur(id: number): Promise<void> {
   await requestJson<void>(`/api/collaborateur/${id}`, { method: 'DELETE' });
+}
+
+// =========================================================
+// Rôles d'affectation
+// =========================================================
+
+export async function getRoleAffectations(): Promise<RoleAffectation[]> {
+  return requestJson<RoleAffectation[]>('/api/role-affectation');
+}
+
+// =========================================================
+// Affectations d'un collaborateur
+// =========================================================
+
+export interface CollaborateurAffectations {
+  dossiers: AffectationDossier[];
+  procedures: AffectationProcedure[];
+}
+
+export async function getAffectations(collaborateurId: number): Promise<CollaborateurAffectations> {
+  return requestJson<CollaborateurAffectations>(`/api/collaborateur/${collaborateurId}/affectations`);
+}
+
+export interface AffectationDossierPayload {
+  dossierId: number;
+  roleId?: number | null;
+  dateDebut?: string | null;
+  dateFin?: string | null;
+}
+
+export async function addAffectationDossier(
+  collaborateurId: number,
+  payload: AffectationDossierPayload,
+): Promise<AffectationDossier> {
+  return requestJson<AffectationDossier>(`/api/collaborateur/${collaborateurId}/affectation-dossier`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function removeAffectationDossier(affectId: number): Promise<void> {
+  await requestJson<void>(`/api/affectation-dossier/${affectId}`, { method: 'DELETE' });
+}
+
+export interface AffectationProcedurePayload {
+  procedureId: number;
+  roleId?: number | null;
+  dateDebut?: string | null;
+  dateFin?: string | null;
+}
+
+export async function addAffectationProcedure(
+  collaborateurId: number,
+  payload: AffectationProcedurePayload,
+): Promise<AffectationProcedure> {
+  return requestJson<AffectationProcedure>(`/api/collaborateur/${collaborateurId}/affectation-procedure`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function removeAffectationProcedure(affectId: number): Promise<void> {
+  await requestJson<void>(`/api/affectation-procedure/${affectId}`, { method: 'DELETE' });
 }

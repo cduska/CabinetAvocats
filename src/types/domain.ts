@@ -130,6 +130,33 @@ export interface Metier {
   libelle: string;
 }
 
+export interface RoleAffectation {
+  id: number;
+  libelle: string;
+}
+
+export interface AffectationDossier {
+  id: number;
+  dossierId: number;
+  dossierReference: string;
+  dossierClient: string;
+  roleId: number | null;
+  roleLibelle: string;
+  dateDebut: string | null;
+  dateFin: string | null;
+}
+
+export interface AffectationProcedure {
+  id: number;
+  procedureId: number;
+  procedureType: string;
+  dossierReference: string;
+  roleId: number | null;
+  roleLibelle: string;
+  dateDebut: string | null;
+  dateFin: string | null;
+}
+
 export interface DashboardMetric {
   code: string;
   label: string;

@@ -3296,6 +3296,211 @@ app.delete('/api/collaborateur/:id', async (request, response, next) => {
   }
 });
 
+// =========================================================
+// Rôles d'affectation
+// =========================================================
+
+app.get('/api/role-affectation', async (request, response, next) => {
+  try {
+    const result = await query(`SELECT id, libelle FROM role_affectation ORDER BY libelle`);
+    response.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// =========================================================
+// Affectations d'un collaborateur (dossiers + procédures)
+// =========================================================
+
+app.get('/api/collaborateur/:id/affectations', async (request, response, next) => {
+  try {
+    const id = Number(request.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      response.status(400).json({ message: 'ID invalide.' });
+      return;
+    }
+
+    const dossiers = await query(
+      `SELECT ad.id,
+              d.id AS "dossierId",
+              d.reference AS "dossierReference",
+              COALESCE(concat_ws(' ', cl.prenom, cl.nom), '') AS "dossierClient",
+              ra.id AS "roleId",
+              COALESCE(ra.libelle, '') AS "roleLibelle",
+              to_char(ad.date_debut, 'YYYY-MM-DD') AS "dateDebut",
+              to_char(ad.date_fin, 'YYYY-MM-DD') AS "dateFin"
+         FROM affectation_dossier ad
+         JOIN dossier d ON d.id = ad.id_dossier
+         LEFT JOIN client cl ON cl.id = d.id_client
+         LEFT JOIN role_affectation ra ON ra.id = ad.id_role
+        WHERE ad.id_collaborateur = $1
+        ORDER BY ad.date_debut DESC NULLS LAST`,
+      [id],
+    );
+
+    const procedures = await query(
+      `SELECT ap.id,
+              p.id AS "procedureId",
+              COALESCE(tp.libelle, '') AS "procedureType",
+              d.reference AS "dossierReference",
+              ra.id AS "roleId",
+              COALESCE(ra.libelle, '') AS "roleLibelle",
+              to_char(ap.date_debut, 'YYYY-MM-DD') AS "dateDebut",
+              to_char(ap.date_fin, 'YYYY-MM-DD') AS "dateFin"
+         FROM affectation_procedure ap
+         JOIN procedure p ON p.id = ap.id_procedure
+         JOIN dossier d ON d.id = p.id_dossier
+         LEFT JOIN type_procedure tp ON tp.id = p.id_type_procedure
+         LEFT JOIN role_affectation ra ON ra.id = ap.id_role
+        WHERE ap.id_collaborateur = $1
+        ORDER BY ap.date_debut DESC NULLS LAST`,
+      [id],
+    );
+
+    response.json({ dossiers: dossiers.rows, procedures: procedures.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/collaborateur/:id/affectation-dossier', async (request, response, next) => {
+  try {
+    const collaborateurId = Number(request.params.id);
+    if (!Number.isInteger(collaborateurId) || collaborateurId <= 0) {
+      response.status(400).json({ message: 'ID invalide.' });
+      return;
+    }
+
+    const dossierId = request.body?.dossierId ? Number(request.body.dossierId) : null;
+    if (!dossierId) {
+      response.status(400).json({ message: 'Le dossier est requis.' });
+      return;
+    }
+
+    const roleId = request.body?.roleId ? Number(request.body.roleId) : null;
+    const dateDebut = toNullableText(request.body?.dateDebut);
+    const dateFin = toNullableText(request.body?.dateFin);
+
+    const ins = await query(
+      `INSERT INTO affectation_dossier (id_collaborateur, id_dossier, id_role, date_debut, date_fin)
+            VALUES ($1, $2, $3, $4, $5)
+         RETURNING id`,
+      [collaborateurId, dossierId, roleId, dateDebut || null, dateFin || null],
+    );
+
+    const row = await query(
+      `SELECT ad.id,
+              d.id AS "dossierId",
+              d.reference AS "dossierReference",
+              COALESCE(concat_ws(' ', cl.prenom, cl.nom), '') AS "dossierClient",
+              ra.id AS "roleId",
+              COALESCE(ra.libelle, '') AS "roleLibelle",
+              to_char(ad.date_debut, 'YYYY-MM-DD') AS "dateDebut",
+              to_char(ad.date_fin, 'YYYY-MM-DD') AS "dateFin"
+         FROM affectation_dossier ad
+         JOIN dossier d ON d.id = ad.id_dossier
+         LEFT JOIN client cl ON cl.id = d.id_client
+         LEFT JOIN role_affectation ra ON ra.id = ad.id_role
+        WHERE ad.id = $1`,
+      [ins.rows[0].id],
+    );
+
+    response.status(201).json(row.rows[0]);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/affectation-dossier/:id', async (request, response, next) => {
+  try {
+    const id = Number(request.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      response.status(400).json({ message: 'ID invalide.' });
+      return;
+    }
+
+    const result = await query(`DELETE FROM affectation_dossier WHERE id = $1 RETURNING id`, [id]);
+    if (result.rows.length === 0) {
+      response.status(404).json({ message: 'Affectation introuvable.' });
+      return;
+    }
+
+    response.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/collaborateur/:id/affectation-procedure', async (request, response, next) => {
+  try {
+    const collaborateurId = Number(request.params.id);
+    if (!Number.isInteger(collaborateurId) || collaborateurId <= 0) {
+      response.status(400).json({ message: 'ID invalide.' });
+      return;
+    }
+
+    const procedureId = request.body?.procedureId ? Number(request.body.procedureId) : null;
+    if (!procedureId) {
+      response.status(400).json({ message: 'La procédure est requise.' });
+      return;
+    }
+
+    const roleId = request.body?.roleId ? Number(request.body.roleId) : null;
+    const dateDebut = toNullableText(request.body?.dateDebut);
+    const dateFin = toNullableText(request.body?.dateFin);
+
+    const ins = await query(
+      `INSERT INTO affectation_procedure (id_collaborateur, id_procedure, id_role, date_debut, date_fin)
+            VALUES ($1, $2, $3, $4, $5)
+         RETURNING id`,
+      [collaborateurId, procedureId, roleId, dateDebut || null, dateFin || null],
+    );
+
+    const row = await query(
+      `SELECT ap.id,
+              p.id AS "procedureId",
+              COALESCE(tp.libelle, '') AS "procedureType",
+              d.reference AS "dossierReference",
+              ra.id AS "roleId",
+              COALESCE(ra.libelle, '') AS "roleLibelle",
+              to_char(ap.date_debut, 'YYYY-MM-DD') AS "dateDebut",
+              to_char(ap.date_fin, 'YYYY-MM-DD') AS "dateFin"
+         FROM affectation_procedure ap
+         JOIN procedure p ON p.id = ap.id_procedure
+         JOIN dossier d ON d.id = p.id_dossier
+         LEFT JOIN type_procedure tp ON tp.id = p.id_type_procedure
+         LEFT JOIN role_affectation ra ON ra.id = ap.id_role
+        WHERE ap.id = $1`,
+      [ins.rows[0].id],
+    );
+
+    response.status(201).json(row.rows[0]);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/affectation-procedure/:id', async (request, response, next) => {
+  try {
+    const id = Number(request.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      response.status(400).json({ message: 'ID invalide.' });
+      return;
+    }
+
+    const result = await query(`DELETE FROM affectation_procedure WHERE id = $1 RETURNING id`, [id]);
+    if (result.rows.length === 0) {
+      response.status(404).json({ message: 'Affectation introuvable.' });
+      return;
+    }
+
+    response.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.use(express.static(distPath));
 app.get(/^(?!\/api(?:\/|$)).*/, (request, response) => {
   response.sendFile(path.join(distPath, 'index.html'));
