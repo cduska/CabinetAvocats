@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Cabinet Avocats</title>
+    <script>
+      // SPA fallback for GitHub Pages.
+      // Encodes the full path + search + hash into a query parameter,
+      // then redirects to the repo root so index.html is served.
+      // The restore script in index.html reads this back and calls history.replaceState.
+      (function () {
+        var location = window.location;
+        // Determine the base segment count from the pathname.
+        // GitHub Pages serves the repo at /<repo>/, so pathSegmentsToKeep = 1.
+        var pathSegmentsToKeep = 1;
+        var l = location.pathname.split('/');
+        var base = l.slice(0, 1 + pathSegmentsToKeep).join('/');
+        var rest = l.slice(1 + pathSegmentsToKeep).join('/');
+        var redirectUrl =
+          base +
+          '/?p=/' +
+          (rest ? encodeURIComponent(rest) : '') +
+          (location.search ? '&q=' + encodeURIComponent(location.search.slice(1)) : '') +
+          (location.hash ? '&h=' + encodeURIComponent(location.hash.slice(1)) : '');
+        location.replace(redirectUrl);
+      })();
+    </script>
+  </head>
+  <body></body>
+</html>

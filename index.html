@@ -6,6 +6,20 @@
     <link rel="shortcut icon" href="data:image/x-icon;," />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>cabinetavocats</title>
+    <!-- SPA routing restore: reads the path encoded by public/404.html and
+         uses history.replaceState so Vue Router sees the original URL. -->
+    <script>
+      (function () {
+        var params = new URLSearchParams(window.location.search);
+        var p = params.get('p');
+        if (!p) return;
+        var q = params.get('q') ? '?' + decodeURIComponent(params.get('q')) : '';
+        var h = params.get('h') ? '#' + decodeURIComponent(params.get('h')) : '';
+        // Remove the ?p=... query from the address bar and restore the real path.
+        var base = window.location.pathname;
+        window.history.replaceState(null, '', base + decodeURIComponent(p) + q + h);
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>
