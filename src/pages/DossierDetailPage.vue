@@ -78,6 +78,10 @@ const isAssociee = computed(() => sessionState.metier === 'Associee');
 const secretDecrypted = ref(false);
 const secretLoading = ref(false);
 const secretError = ref('');
+const viewSecretValue = ref<string | null>(null);
+const viewSecretDecrypted = ref(false);
+const viewSecretLoading = ref(false);
+const viewSecretError = ref('');
 const instanceDrawerOpen = ref(false);
 const selectedInstanceId = ref<number | null>(null);
 const isLoadingInstanceReferences = ref(false);
@@ -593,6 +597,20 @@ async function decryptSecret() {
   }
 }
 
+async function decryptSecretView() {
+  viewSecretLoading.value = true;
+  viewSecretError.value = '';
+  try {
+    const value = await decryptInformationsSecretes(dossierId);
+    viewSecretValue.value = value ?? '';
+    viewSecretDecrypted.value = true;
+  } catch (error) {
+    viewSecretError.value = error instanceof Error ? error.message : 'Erreur lors du déchiffrement.';
+  } finally {
+    viewSecretLoading.value = false;
+  }
+}
+
 async function saveDossier() {
   if (
     !dossier.value
@@ -780,6 +798,28 @@ function goBackToDossiers() {
             <p class="dossier-inline-value">{{ field.value }}</p>
           </div>
         </div>
+      </div>
+
+      <div v-if="isAssociee && dossier?.informationsSecretesSet" class="card secret-view-card">
+        <div class="block-header">
+          <p class="action-bar-title">Informations confidentielles</p>
+          <p class="action-bar-caption">Accès réservé aux associé(e)s — contenu chiffré AES-256.</p>
+        </div>
+        <template v-if="!viewSecretDecrypted">
+          <div class="secret-view-locked">
+            <span class="secret-view-placeholder">•••••••••••••••••••  (contenu chiffré)</span>
+            <button
+              class="button button-secondary"
+              type="button"
+              :disabled="viewSecretLoading"
+              @click="decryptSecretView"
+            >
+              {{ viewSecretLoading ? 'Déchiffrement...' : 'Déchiffrer' }}
+            </button>
+          </div>
+          <p v-if="viewSecretError" class="autosave-error">{{ viewSecretError }}</p>
+        </template>
+        <pre v-else class="secret-view-content">{{ viewSecretValue }}</pre>
       </div>
 
       <div class="detail-layout">
@@ -1501,6 +1541,42 @@ function goBackToDossiers() {
 .secret-field-textarea {
   font-family: inherit;
   resize: vertical;
+}
+
+.secret-view-card {
+  margin-top: 0;
+}
+
+.secret-view-locked {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.8rem;
+  background: #f5f0ff;
+  border: 1px solid #c4aef0;
+  border-radius: 6px;
+}
+
+.secret-view-placeholder {
+  flex: 1;
+  font-family: monospace;
+  color: #6b44c4;
+  font-size: 0.95rem;
+  letter-spacing: 0.05em;
+}
+
+.secret-view-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  padding: 0.75rem 0.9rem;
+  background: #f9f7ff;
+  border: 1px solid #e0d7f8;
+  border-radius: 6px;
+  margin: 0;
+  color: #1a1a2e;
 }
 
 @media (max-width: 1320px) {
