@@ -69,6 +69,7 @@ FROM (
   VALUES
     ('Ouvert'),
     ('En cours'),
+    ('A valider'),
     ('Clos')
 ) AS v(libelle)
 WHERE NOT EXISTS (

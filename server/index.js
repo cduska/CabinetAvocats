@@ -2123,10 +2123,10 @@ app.put('/api/instances/:id', async (request, response, next) => {
 
     await query(
       `
-        INSERT INTO historique_procedure (id_procedure, auteur, date_modification, description)
+        INSERT INTO historique_instance (id_instance, auteur, date_modification, description)
         VALUES ($1, $2, NOW(), $3)
       `,
-      [previousInstance.procedureId, actorId, description],
+      [instanceId, actorId, description],
     );
 
     response.json({
