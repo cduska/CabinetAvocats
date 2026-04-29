@@ -45,7 +45,7 @@ watch(
     if (!isTiptapDoc(newVal)) return;
     const current = editor.value.getJSON() as Record<string, unknown>;
     if (JSON.stringify(current) === JSON.stringify(newVal)) return;
-    editor.value.commands.setContent(newVal as any, false);
+    editor.value.commands.setContent(newVal as any, { emitUpdate: false });
   },
   { deep: false },
 );

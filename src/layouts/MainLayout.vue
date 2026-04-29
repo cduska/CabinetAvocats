@@ -28,7 +28,6 @@ const {
   state: sessionState,
   availableMetiers,
   availableUsers,
-  currentAgency,
   currentUser,
   setAgency,
   setMetier,
@@ -82,13 +81,7 @@ async function refreshNeonAuthSessionState(): Promise<void> {
   neonAuthSessionState.value = await getNeonAuthSessionState();
 }
 
-const activeSessionLabel = computed(() => {
-  if (!currentUser.value || !currentAgency.value) {
-    return 'Aucune session active';
-  }
 
-  return `${currentUser.value.firstName} ${currentUser.value.lastName} - ${currentUser.value.metier} (${currentAgency.value.label})`;
-});
 
 let removeNeonTokenListener: (() => void) | null = null;
 
