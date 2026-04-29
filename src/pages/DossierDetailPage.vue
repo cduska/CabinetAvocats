@@ -395,8 +395,7 @@ async function loadAvailableModeles() {
   try {
     const modeles = await getModeles({ publishedOnly: true });
     availableModeles.value = modeles;
-  } catch (error) {
-    console.error('Erreur lors du chargement des modèles', error);
+  } catch {
     availableModeles.value = [];
   }
 }
@@ -426,8 +425,8 @@ async function deleteDocumentFromList(docId: number) {
   try {
     await deleteDocument(docId);
     dossierDocuments.value = dossierDocuments.value.filter((d) => d.id !== docId);
-  } catch (error) {
-    console.error('Erreur lors de la suppression du document', error);
+  } catch {
+    // suppression silencieuse — l'absence de l'élément dans la liste suffit comme feedback
   }
 }
 

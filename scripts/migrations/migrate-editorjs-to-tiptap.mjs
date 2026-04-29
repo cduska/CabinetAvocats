@@ -20,7 +20,7 @@ dotenv.config();
 
 function getPoolConfig() {
   const url = process.env.DATABASE_URL;
-  if (url) return { connectionString: url, ssl: { rejectUnauthorized: false } };
+  if (url) return { connectionString: url };
   return {
     host:     process.env.PGHOST     || '127.0.0.1',
     port:     Number(process.env.PGPORT || 5432),
