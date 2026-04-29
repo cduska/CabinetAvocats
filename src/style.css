@@ -238,61 +238,6 @@ label {
   gap: 0.2rem;
 }
 
-.topbar-signature {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.7rem;
-  padding: 0.45rem 0.6rem;
-  border-radius: 10px;
-  border: 1px solid var(--border-color);
-  background:
-    linear-gradient(120deg, rgba(18, 77, 156, 0.14), rgba(34, 117, 187, 0.08)),
-    var(--bg-panel);
-}
-
-.topbar-signature-main {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-width: 0;
-}
-
-.topbar-signature-mark {
-  display: inline-grid;
-  place-items: center;
-  width: 1.9rem;
-  height: 1.9rem;
-  border-radius: 8px;
-  background: var(--bg-strong);
-  color: var(--text-on-strong);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-}
-
-.topbar-signature-agency {
-  color: var(--text-main);
-  font-size: 0.84rem;
-  font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.topbar-user-avatar {
-  display: inline-grid;
-  place-items: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 999px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-muted);
-  color: var(--text-main);
-  font-size: 0.76rem;
-  font-weight: 700;
-}
-
 .topbar-date {
   color: var(--text-subtle);
   font-size: 0.78rem;
@@ -389,12 +334,6 @@ label {
   color: #f4a8a8;
   background: #37222d; /* rgba(158,45,45,0.24) composited over #171e2d */
   border-color: rgba(244, 168, 168, 0.3);
-}
-
-[data-theme='dark'] .topbar-signature {
-  background:
-    linear-gradient(120deg, rgba(77, 155, 255, 0.24), rgba(95, 165, 255, 0.14)),
-    var(--bg-panel);
 }
 
 .topbar-actions {
@@ -1259,10 +1198,6 @@ tbody tr:hover {
     gap: 0.15rem;
   }
 
-  .topbar-signature {
-    width: 100%;
-  }
-
   .session-switcher {
     width: 100%;
   }
@@ -1276,10 +1211,6 @@ tbody tr:hover {
   .page-content,
   .topbar {
     padding-inline: 0.75rem;
-  }
-
-  .topbar-signature-agency {
-    max-width: 11.5rem;
   }
 
   .action-bar {

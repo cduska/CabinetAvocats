@@ -734,7 +734,8 @@ async function getDocumentById(documentId) {
           END
         ) AS statut,
         d.id_modele AS "modeleId",
-        d.numero_version_modele AS "modeleVersion"
+        d.numero_version_modele AS "modeleVersion",
+        COALESCE(d.metadata_json, '{}'::jsonb) AS "metadataJson"
       FROM document d
       LEFT JOIN type_document td ON td.id = d.id_type_document
       LEFT JOIN dossier ds ON ds.id = d.id_dossier
@@ -2034,6 +2035,83 @@ app.get('/api/procedures/:id/history', async (request, response, next) => {
   }
 });
 
+app.post('/api/procedures', async (request, response, next) => {
+  try {
+    const sessionContext = getSessionContext(request);
+    const dossierId = Number(request.body.dossierId);
+    if (!Number.isFinite(dossierId)) {
+      response.status(400).json({ message: 'dossierId est obligatoire.' });
+      return;
+    }
+
+    const typeLabel = toNullableText(request.body.type);
+    const statutLabel = toNullableText(request.body.statut);
+    if (!typeLabel || !statutLabel) {
+      response.status(400).json({ message: 'type et statut sont obligatoires.' });
+      return;
+    }
+
+    const agenceFilter = await resolveAgenceFilter(request.query.agence, sessionContext);
+    const collaborateurScope = await resolveCollaborateurScope(sessionContext);
+
+    const dossierAccess = await query(
+      `
+        SELECT d.id FROM dossier d
+        LEFT JOIN client c ON c.id = d.id_client
+        LEFT JOIN agence a ON a.id = d.id_agence
+        WHERE d.id = $1
+          AND ($2::text IS NULL OR a.id::text = $2 OR lower(a.nom) = lower($2))
+          AND ($3::int IS NULL
+            OR c.id_collaborateur_responsable = $3
+            OR EXISTS (
+              SELECT 1 FROM affectation_dossier ad
+              WHERE ad.id_dossier = d.id
+                AND ad.id_collaborateur = $3
+                AND (ad.date_fin IS NULL OR ad.date_fin >= CURRENT_DATE)
+            ))
+        LIMIT 1
+      `,
+      [dossierId, agenceFilter, collaborateurScope.restrictToCollaborateur ? collaborateurScope.collaborateurId : null],
+    );
+
+    if (dossierAccess.rows.length === 0) {
+      response.status(404).json({ message: 'Dossier introuvable.' });
+      return;
+    }
+
+    const typeId = await findOrCreateLabelId('type_procedure', typeLabel);
+    const statutId = await findOrCreateLabelId('statut_procedure', statutLabel);
+    const dateDebut = toNullableText(request.body.debut);
+    const dateFin = toNullableText(request.body.fin);
+
+    const inserted = await query(
+      `
+        INSERT INTO "procedure" (id_dossier, id_type_procedure, id_statut_procedure, date_debut, date_fin)
+        VALUES ($1, $2, $3, $4::date, $5::date)
+        RETURNING id
+      `,
+      [dossierId, typeId, statutId, dateDebut, dateFin],
+    );
+
+    const newId = inserted.rows[0].id;
+
+    const actorIdByEmail = await findCollaborateurIdByEmail(sessionContext.userEmail);
+    const actorId = actorIdByEmail ?? await findCollaborateurId(sessionContext.user);
+    await query(
+      `
+        INSERT INTO historique_procedure (id_procedure, auteur, date_modification, description)
+        VALUES ($1, $2, NOW(), 'Creation de la procedure')
+      `,
+      [newId, actorId],
+    );
+
+    const row = await getProcedureById(newId);
+    response.status(201).json(row);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.put('/api/procedures/:id', async (request, response, next) => {
   try {
     const procedureId = Number(request.params.id);
@@ -2106,6 +2184,70 @@ app.put('/api/procedures/:id', async (request, response, next) => {
     );
 
     response.json(row);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/instances', async (request, response, next) => {
+  try {
+    const sessionContext = getSessionContext(request);
+    const procedureId = Number(request.body.procedureId);
+    if (!Number.isFinite(procedureId)) {
+      response.status(400).json({ message: 'procedureId est obligatoire.' });
+      return;
+    }
+
+    const typeLabel = toNullableText(request.body.type);
+    const statutLabel = toNullableText(request.body.statut);
+    if (!typeLabel || !statutLabel) {
+      response.status(400).json({ message: 'type et statut sont obligatoires.' });
+      return;
+    }
+
+    const agenceFilter = await resolveAgenceFilter(request.query.agence, sessionContext);
+    const collaborateurScope = await resolveCollaborateurScope(sessionContext);
+
+    const accessGranted = await hasProcedureAccess(procedureId, agenceFilter, collaborateurScope.restrictToCollaborateur ? collaborateurScope.collaborateurId : null);
+    if (!accessGranted) {
+      response.status(404).json({ message: 'Procedure introuvable.' });
+      return;
+    }
+
+    const typeId = await findOrCreateLabelId('type_instance', typeLabel);
+    const statutId = await findOrCreateLabelId('statut_instance', statutLabel);
+    const dateDebut = toNullableText(request.body.debut);
+    const dateFin = toNullableText(request.body.fin);
+
+    const inserted = await query(
+      `
+        INSERT INTO instance_juridique (id_procedure, id_type_instance, id_statut_instance, date_debut, date_fin)
+        VALUES ($1, $2, $3, $4::date, $5::date)
+        RETURNING id
+      `,
+      [procedureId, typeId, statutId, dateDebut, dateFin],
+    );
+
+    const newId = inserted.rows[0].id;
+
+    const actorIdByEmail = await findCollaborateurIdByEmail(sessionContext.userEmail);
+    const actorId = actorIdByEmail ?? await findCollaborateurId(sessionContext.user);
+    await query(
+      `
+        INSERT INTO historique_instance (id_instance, auteur, date_modification, description)
+        VALUES ($1, $2, NOW(), 'Creation de l''instance')
+      `,
+      [newId, actorId],
+    );
+
+    const row = await getInstanceById(newId);
+    response.status(201).json({
+      id: row.id,
+      type: row.type,
+      statut: row.statut,
+      debut: row.debut,
+      fin: row.fin,
+    });
   } catch (error) {
     next(error);
   }
@@ -2271,6 +2413,8 @@ app.get('/api/documents', async (request, response, next) => {
       return;
     }
 
+    const dossierIdFilter = request.query.dossierId ? Number(request.query.dossierId) : null;
+
     const result = await query(
       `
         SELECT
@@ -2318,9 +2462,13 @@ app.get('/api/documents', async (request, response, next) => {
                 AND ap.id_collaborateur = $2
                 AND (ap.date_fin IS NULL OR ap.date_fin >= CURRENT_DATE)
             ))
+          AND ($3::int IS NULL
+            OR direct_dossier.id = $3
+            OR procedure_dossier.id = $3
+            OR instance_dossier.id = $3)
         ORDER BY doc.id DESC
       `,
-      [agenceFilter, collaborateurScope.collaborateurId],
+      [agenceFilter, collaborateurScope.collaborateurId, dossierIdFilter],
     );
 
     response.json(result.rows);
@@ -2691,6 +2839,214 @@ app.get('/api/modeles/:id/versions/:version', async (request, response, next) =>
     }
 
     response.json(version);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/documents/:id', async (request, response, next) => {
+  try {
+    const documentId = Number(request.params.id);
+    if (!Number.isFinite(documentId)) {
+      response.status(400).json({ message: 'ID document invalide.' });
+      return;
+    }
+
+    const sessionContext = getSessionContext(request);
+    const agenceFilter = await resolveAgenceFilter(request.query.agence, sessionContext);
+    const collaborateurScope = await resolveCollaborateurScope(sessionContext);
+
+    if (collaborateurScope.restrictToCollaborateur && collaborateurScope.collaborateurId === null) {
+      response.status(404).json({ message: 'Document introuvable.' });
+      return;
+    }
+
+    const result = await query(
+      `
+        SELECT
+          d.id,
+          COALESCE(td.libelle, 'Document') AS type,
+          COALESCE(ds.reference, pds.reference, ids.reference, '') AS "dossierReference",
+          d.id_procedure AS "procedureId",
+          d.id_instance AS "instanceId",
+          COALESCE(trim(concat_ws(' ', c.prenom, c.nom)), 'Non assigne') AS auteur,
+          COALESCE(to_char(d.date_creation, 'YYYY-MM-DD'), '') AS "dateCreation",
+          COALESCE(d.statut_document, 'brouillon') AS statut,
+          d.id_modele AS "modeleId",
+          d.numero_version_modele AS "modeleVersion",
+          COALESCE(d.metadata_json, '{}'::jsonb) AS "metadataJson"
+        FROM document d
+        LEFT JOIN type_document td ON td.id = d.id_type_document
+        LEFT JOIN dossier ds ON ds.id = d.id_dossier
+        LEFT JOIN "procedure" p ON p.id = d.id_procedure
+        LEFT JOIN dossier pds ON pds.id = p.id_dossier
+        LEFT JOIN instance_juridique ij ON ij.id = d.id_instance
+        LEFT JOIN "procedure" ip ON ip.id = ij.id_procedure
+        LEFT JOIN dossier ids ON ids.id = ip.id_dossier
+        LEFT JOIN client cl ON cl.id = COALESCE(ds.id_client, pds.id_client, ids.id_client)
+        LEFT JOIN agence a ON a.id = COALESCE(ds.id_agence, pds.id_agence, ids.id_agence)
+        LEFT JOIN collaborateur c ON c.id = d.auteur
+        WHERE d.id = $1
+          AND ($2::text IS NULL OR a.id::text = $2 OR lower(a.nom) = lower($2) OR lower(a.ville) = lower($2))
+          AND ($3::int IS NULL
+            OR cl.id_collaborateur_responsable = $3
+            OR EXISTS (
+              SELECT 1 FROM affectation_dossier ad
+              WHERE ad.id_dossier = COALESCE(ds.id, pds.id, ids.id)
+                AND ad.id_collaborateur = $3
+                AND (ad.date_fin IS NULL OR ad.date_fin >= CURRENT_DATE)
+            ))
+        LIMIT 1
+      `,
+      [documentId, agenceFilter, collaborateurScope.collaborateurId],
+    );
+
+    const row = result.rows[0];
+    if (!row) {
+      response.status(404).json({ message: 'Document introuvable.' });
+      return;
+    }
+
+    response.json(row);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/documents/:id', async (request, response, next) => {
+  try {
+    const documentId = Number(request.params.id);
+    if (!Number.isFinite(documentId)) {
+      response.status(400).json({ message: 'ID document invalide.' });
+      return;
+    }
+
+    const sessionContext = getSessionContext(request);
+    const agenceFilter = await resolveAgenceFilter(request.query.agence, sessionContext);
+    const collaborateurScope = await resolveCollaborateurScope(sessionContext);
+
+    if (collaborateurScope.restrictToCollaborateur && collaborateurScope.collaborateurId === null) {
+      response.status(404).json({ message: 'Document introuvable.' });
+      return;
+    }
+
+    const nextStatus = toNullableText(request.body.statut);
+    const contenuJson = toJsonObject(request.body.contenuJson) ?? null;
+    const typeLabel = toNullableText(request.body.type);
+
+    const accessCheck = await query(
+      `
+        SELECT d.id
+        FROM document d
+        LEFT JOIN dossier ds ON ds.id = d.id_dossier
+        LEFT JOIN "procedure" p ON p.id = d.id_procedure
+        LEFT JOIN dossier pds ON pds.id = p.id_dossier
+        LEFT JOIN instance_juridique ij ON ij.id = d.id_instance
+        LEFT JOIN "procedure" ip ON ip.id = ij.id_procedure
+        LEFT JOIN dossier ids ON ids.id = ip.id_dossier
+        LEFT JOIN agence a ON a.id = COALESCE(ds.id_agence, pds.id_agence, ids.id_agence)
+        WHERE d.id = $1
+          AND ($2::text IS NULL OR a.id::text = $2 OR lower(a.nom) = lower($2) OR lower(a.ville) = lower($2))
+        LIMIT 1
+      `,
+      [documentId, agenceFilter],
+    );
+
+    if (!accessCheck.rows[0]) {
+      response.status(404).json({ message: 'Document introuvable.' });
+      return;
+    }
+
+    let typeId = null;
+    if (typeLabel) {
+      const typeResult = await query(
+        `
+          SELECT id FROM type_document WHERE libelle = $1 LIMIT 1
+        `,
+        [typeLabel],
+      );
+      typeId = typeResult.rows[0]?.id ?? null;
+    }
+
+    await query(
+      `
+        UPDATE document
+        SET
+          id_type_document = COALESCE($4, id_type_document),
+          statut_document = COALESCE($2, statut_document),
+          metadata_json = CASE WHEN $3::jsonb IS NOT NULL
+            THEN COALESCE(metadata_json, '{}'::jsonb) || jsonb_build_object('contenuJson', $3::jsonb)
+            ELSE metadata_json
+          END
+        WHERE id = $1
+      `,
+      [documentId, nextStatus, contenuJson ? JSON.stringify(contenuJson) : null, typeId],
+    );
+
+    const row = await getDocumentById(documentId);
+    response.json(row);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/documents/:id', async (request, response, next) => {
+  try {
+    const documentId = Number(request.params.id);
+    if (!Number.isFinite(documentId)) {
+      response.status(400).json({ message: 'ID document invalide.' });
+      return;
+    }
+
+    const sessionContext = getSessionContext(request);
+    const agenceFilter = await resolveAgenceFilter(request.query.agence, sessionContext);
+    const collaborateurScope = await resolveCollaborateurScope(sessionContext);
+
+    if (collaborateurScope.restrictToCollaborateur && collaborateurScope.collaborateurId === null) {
+      response.status(404).json({ message: 'Document introuvable.' });
+      return;
+    }
+
+    const accessCheck = await query(
+      `
+        SELECT d.id
+        FROM document d
+        LEFT JOIN dossier ds ON ds.id = d.id_dossier
+        LEFT JOIN "procedure" p ON p.id = d.id_procedure
+        LEFT JOIN dossier pds ON pds.id = p.id_dossier
+        LEFT JOIN instance_juridique ij ON ij.id = d.id_instance
+        LEFT JOIN "procedure" ip ON ip.id = ij.id_procedure
+        LEFT JOIN dossier ids ON ids.id = ip.id_dossier
+        LEFT JOIN client c ON c.id = COALESCE(ds.id_client, pds.id_client, ids.id_client)
+        LEFT JOIN agence a ON a.id = COALESCE(ds.id_agence, pds.id_agence, ids.id_agence)
+        WHERE d.id = $1
+          AND ($2::text IS NULL OR a.id::text = $2 OR lower(a.nom) = lower($2) OR lower(a.ville) = lower($2))
+          AND ($3::int IS NULL
+            OR c.id_collaborateur_responsable = $3
+            OR EXISTS (
+              SELECT 1 FROM affectation_dossier ad
+              WHERE ad.id_dossier = COALESCE(ds.id, pds.id, ids.id)
+                AND ad.id_collaborateur = $3
+                AND (ad.date_fin IS NULL OR ad.date_fin >= CURRENT_DATE)
+            ))
+        LIMIT 1
+      `,
+      [documentId, agenceFilter, collaborateurScope.collaborateurId],
+    );
+
+    if (!accessCheck.rows[0]) {
+      response.status(404).json({ message: 'Document introuvable.' });
+      return;
+    }
+
+    await query(
+      `
+        DELETE FROM document WHERE id = $1
+      `,
+      [documentId],
+    );
+
+    response.json({ message: 'Document supprimé avec succès.' });
   } catch (error) {
     next(error);
   }

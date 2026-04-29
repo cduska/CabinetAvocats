@@ -250,3 +250,92 @@ export async function updateProcedureInstance(id: number, payload: {
     body: JSON.stringify(payload),
   });
 }
+
+export async function createProcedureInstance(payload: {
+  procedureId: number;
+  type: string;
+  statut: string;
+  debut: string;
+  fin: string;
+}): Promise<ProcedureInstance> {
+  if (isNeonDataApiEnabled()) {
+    const [typeId, statutId] = await Promise.all([
+      getTypeInstanceId(payload.type),
+      getStatutInstanceId(payload.statut),
+    ]);
+
+    const rows = await requestNeonRest<Array<{ id: number }>>('/instance_juridique', {
+      method: 'POST',
+      body: JSON.stringify({
+        id_procedure: payload.procedureId,
+        id_type_instance: typeId,
+        id_statut_instance: statutId,
+        date_debut: payload.debut || null,
+        date_fin: payload.fin || null,
+      }),
+      headers: {
+        Prefer: 'return=representation,resolution=header-or-ignore',
+      },
+    });
+
+    const newId = rows[0]?.id;
+    if (!Number.isFinite(newId)) {
+      throw new TypeError('Erreur lors de la creation de l\'instance.');
+    }
+
+    const instanceRows = await requestNeonRest<InstanceNested[]>(
+      `/instance_juridique?select=id,id_procedure,date_debut,date_fin,type_instance(libelle),statut_instance(libelle)&id=eq.${newId}&limit=1`,
+    );
+    const row = instanceRows[0];
+    if (!row) {
+      throw new TypeError('Instance introuvable apres creation.');
+    }
+    return mapInstance(row);
+  }
+
+  return requestJson<ProcedureInstance>('/api/instances', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createProcedure(payload: {
+  dossierId: number;
+  type: string;
+  statut: string;
+  debut: string;
+  fin: string;
+}): Promise<ProcedureItem> {
+  if (isNeonDataApiEnabled()) {
+    const [typeId, statutId] = await Promise.all([
+      getTypeProcedureId(payload.type),
+      getStatutProcedureId(payload.statut),
+    ]);
+
+    const rows = await requestNeonRest<Array<{ id: number }>>('/procedure', {
+      method: 'POST',
+      body: JSON.stringify({
+        id_dossier: payload.dossierId,
+        id_type_procedure: typeId,
+        id_statut_procedure: statutId,
+        date_debut: payload.debut || null,
+        date_fin: payload.fin || null,
+      }),
+      headers: {
+        Prefer: 'return=representation,resolution=header-or-ignore',
+      },
+    });
+
+    const newId = rows[0]?.id;
+    if (!Number.isFinite(newId)) {
+      throw new TypeError('Erreur lors de la creation de la procedure.');
+    }
+
+    return getProcedureByIdFromNeon(newId);
+  }
+
+  return requestJson<ProcedureItem>('/api/procedures', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}

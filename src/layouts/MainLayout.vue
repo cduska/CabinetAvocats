@@ -41,7 +41,6 @@ const navigation: NavigationItem[] = [
   { label: 'Dossiers', path: '/dossiers', icon: 'DS', routeName: 'dossiers' },
   { label: 'Modeles', path: '/modeles', icon: 'MD', routeName: 'modeles' },
   { label: 'Documents', path: '/documents', icon: 'DC', routeName: 'documents' },
-  { label: 'Schema', path: '/schema', icon: 'SC', routeName: 'schema' },
   { label: 'Parametrage', path: '/parametrage', icon: 'PR', routeName: 'parametrage' },
   { label: 'Collaborateurs', path: '/collaborateurs', icon: 'CB', routeName: 'collaborateurs' },
 ];
@@ -67,11 +66,6 @@ const greetingLabel = computed(() => {
   }
 
   return `Bonsoir ${firstName}`;
-});
-const userInitials = computed(() => {
-  const first = (currentUser.value?.firstName ?? '').trim().charAt(0).toUpperCase();
-  const last = (currentUser.value?.lastName ?? '').trim().charAt(0).toUpperCase();
-  return `${first}${last}` || 'CA';
 });
 const isNeonMode = computed(() => isNeonDataApiEnabled());
 const neonTokenValue = ref(getNeonAuthToken().trim());
@@ -186,10 +180,6 @@ function onUserChange(event: Event): void {
     <div class="workspace">
       <header class="topbar">
         <div class="topbar-identity">
-          <div class="topbar-signature">
-            <span class="topbar-signature-mark">CA</span>
-            <span class="topbar-user-avatar" :title="activeSessionLabel">{{ userInitials }}</span>
-          </div>
           <p class="topbar-kicker">{{ greetingLabel }}</p>
           <h1>{{ pageTitle }}</h1>
           <p class="topbar-date">{{ todayLabel }}</p>

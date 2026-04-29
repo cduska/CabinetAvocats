@@ -191,6 +191,68 @@ export async function getDocuments() {
   return requestJson<DocumentItem[]>(`/api/documents${query}`);
 }
 
+export async function getDocumentsByDossier(dossierId: number, dossierReference: string): Promise<DocumentItem[]> {
+  if (isNeonDataApiEnabled()) {
+    const all = await getDocumentsFromNeon();
+    return all.filter((d) => d.dossierReference === dossierReference);
+  }
+
+  const params = new URLSearchParams({ dossierId: String(dossierId) });
+  return requestJson<DocumentItem[]>(`/api/documents?${params}`);
+}
+
+export async function getDocumentById(id: number): Promise<DocumentItem> {
+  if (isNeonDataApiEnabled()) {
+    return getDocumentByIdFromNeon(id);
+  }
+
+  const result = await requestJson<any>(`/api/documents/${id}`);
+  // Map metadataJson.contenuJson to contenuJson at root level
+  if (result && typeof result === 'object') {
+    const metadataJson = result.metadataJson as Record<string, unknown> | undefined;
+    if (metadataJson && typeof metadataJson === 'object' && 'contenuJson' in metadataJson) {
+      result.contenuJson = metadataJson.contenuJson;
+    }
+  }
+  return result as DocumentItem;
+}
+
+export async function updateDocument(id: number, payload: {
+  type?: string;
+  statut?: string;
+  contenuJson?: Record<string, unknown>;
+}): Promise<DocumentItem> {
+  if (isNeonDataApiEnabled()) {
+    if (payload.statut) {
+      await requestNeonRest(`/document?id=eq.${id}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({ statut_document: payload.statut }),
+      });
+    }
+    return getDocumentByIdFromNeon(id);
+  }
+
+  return requestJson<DocumentItem>(`/api/documents/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteDocument(id: number): Promise<void> {
+  if (isNeonDataApiEnabled()) {
+    await requestNeonRest(`/document?id=eq.${id}`, {
+      method: 'DELETE',
+      headers: { Prefer: 'return=minimal' },
+    });
+    return;
+  }
+
+  await requestJson(`/api/documents/${id}`, {
+    method: 'DELETE',
+  });
+}
+
 export async function createDocument(payload: {
   type: string;
   dossierReference?: string;

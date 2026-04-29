@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import DrawerPanel from '../components/ui/DrawerPanel.vue';
+import RichTextEditor from '../components/ui/RichTextEditor.vue';
 import {
   getAgences,
   getClients,
@@ -19,19 +20,25 @@ import {
   getTypesDossier,
   updateProcedure,
   updateDossier,
+  getTypesDocument,
 } from '../services/api';
+import { createProcedure, createProcedureInstance } from '../services/api/proceduresApi';
+import { getDocumentsByDossier, getDocumentById as fetchDocumentById, updateDocument, deleteDocument } from '../services/api/documentsApi';
+import { getModeles, getModeleById } from '../services/api/modelesApi';
 import { decryptInformationsSecretes } from '../services/api/dossiersApi';
 import { useSession } from '../services/session';
 import { getStatusColorClass } from '../services/status';
 import type {
   Agence,
   Client,
+  DocumentItem,
   Dossier,
   ProcedureHistoryItem,
   ProcedureInstance,
   ProcedureItem,
   StatutDossier,
   StatutInstance,
+  TypeDocument,
   TypeDossier,
   TypeInstance,
   TypeProcedure,
@@ -84,6 +91,39 @@ const viewSecretLoading = ref(false);
 const viewSecretError = ref('');
 const instanceDrawerOpen = ref(false);
 const selectedInstanceId = ref<number | null>(null);
+const newProcedureDrawerOpen = ref(false);
+const isCreatingProcedure = ref(false);
+const newProcedureError = ref('');
+const newProcedureForm = reactive({
+  type: '',
+  statut: '',
+  debut: '',
+  fin: '',
+});
+const newInstanceDrawerOpen = ref(false);
+const isCreatingInstance = ref(false);
+const newInstanceError = ref('');
+const newInstanceForm = reactive({
+  type: '',
+  statut: '',
+  debut: '',
+  fin: '',
+});
+const dossierDocuments = ref<DocumentItem[]>([]);
+const loadingDossierDocuments = ref(false);
+const documentTypeOptions = ref<TypeDocument[]>([]);
+const docDrawerOpen = ref(false);
+const docDrawerDoc = ref<DocumentItem | null>(null);
+const docDrawerType = ref('');
+const docDrawerStatut = ref('');
+const docDrawerContenu = ref<Record<string, unknown>>({});
+const docDrawerIsLoading = ref(false);
+const docDrawerIsSaving = ref(false);
+const docDrawerError = ref('');
+const docDrawerSavedAt = ref('');
+const availableModeles = ref<any[]>([]);
+const selectedTemplateId = ref('');
+const isLoadingTemplate = ref(false);
 const isLoadingInstanceReferences = ref(false);
 const hasLoadedInstanceReferences = ref(false);
 const instanceReferencesError = ref('');
@@ -274,6 +314,123 @@ function hydrateFormFromDossier(apiDossier: Dossier) {
   unresolvedReferences.agence = getUnresolvedReferenceLabel(apiDossier.agence, resolvedAgenceId);
 }
 
+async function loadDossierDocuments() {
+  if (!dossier.value) return;
+  loadingDossierDocuments.value = true;
+  try {
+    dossierDocuments.value = await getDocumentsByDossier(dossierId, dossier.value.reference ?? '');
+  } catch {
+    dossierDocuments.value = [];
+  } finally {
+    loadingDossierDocuments.value = false;
+  }
+}
+
+async function openDocumentDrawer(doc: DocumentItem) {
+  docDrawerDoc.value = doc;
+  docDrawerType.value = doc.type;
+  docDrawerStatut.value = doc.statut;
+  docDrawerContenu.value = {};
+  docDrawerError.value = '';
+  docDrawerSavedAt.value = '';
+  docDrawerOpen.value = true;
+  docDrawerIsLoading.value = true;
+  try {
+    const full = await fetchDocumentById(doc.id);
+    docDrawerDoc.value = full;
+    docDrawerType.value = full.type;
+    docDrawerStatut.value = full.statut;
+    docDrawerContenu.value = full.contenuJson ?? {};
+  } catch {
+    docDrawerError.value = 'Impossible de charger le contenu du document.';
+  } finally {
+    docDrawerIsLoading.value = false;
+  }
+  if (documentTypeOptions.value.length === 0) {
+    try {
+      documentTypeOptions.value = await getTypesDocument();
+    } catch {
+      documentTypeOptions.value = [];
+    }
+  }
+  if (availableModeles.value.length === 0) {
+    void loadAvailableModeles();
+  }
+}
+
+function closeDocumentDrawer() {
+  docDrawerOpen.value = false;
+  docDrawerDoc.value = null;
+}
+
+async function saveDocumentDrawer() {
+  if (!docDrawerDoc.value || !docDrawerStatut.value.trim()) {
+    docDrawerError.value = 'Le statut est obligatoire.';
+    return;
+  }
+
+  docDrawerIsSaving.value = true;
+  docDrawerError.value = '';
+
+  try {
+    const updated = await updateDocument(docDrawerDoc.value.id, {
+      type: docDrawerType.value,
+      statut: docDrawerStatut.value,
+      contenuJson: docDrawerContenu.value,
+    });
+    const idx = dossierDocuments.value.findIndex((d) => d.id === updated.id);
+    if (idx !== -1) {
+      dossierDocuments.value[idx] = updated;
+    }
+    docDrawerSavedAt.value = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    closeDocumentDrawer();
+  } catch (error) {
+    docDrawerError.value = error instanceof Error ? error.message : 'Erreur lors de la sauvegarde.';
+  } finally {
+    docDrawerIsSaving.value = false;
+  }
+}
+
+async function loadAvailableModeles() {
+  try {
+    const modeles = await getModeles({ publishedOnly: true });
+    availableModeles.value = modeles;
+  } catch (error) {
+    console.error('Erreur lors du chargement des modèles', error);
+    availableModeles.value = [];
+  }
+}
+
+async function applyTemplate() {
+  if (!selectedTemplateId.value || !docDrawerDoc.value) return;
+
+  isLoadingTemplate.value = true;
+  try {
+    const modele = await getModeleById(Number(selectedTemplateId.value));
+    if (modele?.contenuJson) {
+      docDrawerContenu.value = { ...modele.contenuJson };
+    }
+    selectedTemplateId.value = '';
+  } catch (error) {
+    docDrawerError.value = error instanceof Error ? error.message : 'Erreur lors du chargement du modèle.';
+  } finally {
+    isLoadingTemplate.value = false;
+  }
+}
+
+async function deleteDocumentFromList(docId: number) {
+  if (!confirm('Êtes-vous sûr de vouloir supprimer ce document ?')) {
+    return;
+  }
+
+  try {
+    await deleteDocument(docId);
+    dossierDocuments.value = dossierDocuments.value.filter((d) => d.id !== docId);
+  } catch (error) {
+    console.error('Erreur lors de la suppression du document', error);
+  }
+}
+
 async function loadDossierPage() {
   isLoading.value = true;
 
@@ -282,6 +439,7 @@ async function loadDossierPage() {
     const apiDossier = await getDossierById(dossierId);
     dossier.value = apiDossier;
     hydrateFormFromDossier(apiDossier);
+    void loadDossierDocuments();
   } catch {
     dossier.value = undefined;
   } finally {
@@ -756,6 +914,105 @@ async function saveInstanceFromDrawer() {
   }
 }
 
+async function openNewInstanceDrawer() {
+  newInstanceForm.type = '';
+  newInstanceForm.statut = '';
+  newInstanceForm.debut = '';
+  newInstanceForm.fin = '';
+  newInstanceError.value = '';
+  newInstanceDrawerOpen.value = true;
+  void loadInstanceReferences();
+}
+
+function closeNewInstanceDrawer() {
+  newInstanceDrawerOpen.value = false;
+}
+
+async function saveNewInstance() {
+  if (!selectedProcedureId.value) {
+    return;
+  }
+
+  if (!newInstanceForm.type.trim() || !newInstanceForm.statut.trim()) {
+    newInstanceError.value = 'Le type et le statut sont obligatoires.';
+    return;
+  }
+
+  isCreatingInstance.value = true;
+  newInstanceError.value = '';
+
+  try {
+    await createProcedureInstance({
+      procedureId: selectedProcedureId.value,
+      type: newInstanceForm.type,
+      statut: newInstanceForm.statut,
+      debut: newInstanceForm.debut,
+      fin: newInstanceForm.fin,
+    });
+
+    await loadProcedurePanel(selectedProcedureId.value);
+    closeNewInstanceDrawer();
+  } catch (error) {
+    newInstanceError.value = error instanceof Error ? error.message : 'Erreur lors de la creation de l\'instance.';
+  } finally {
+    isCreatingInstance.value = false;
+  }
+}
+
+async function openNewProcedureDrawer() {
+  newProcedureForm.type = '';
+  newProcedureForm.statut = '';
+  newProcedureForm.debut = '';
+  newProcedureForm.fin = '';
+  newProcedureError.value = '';
+  newProcedureDrawerOpen.value = true;
+
+  if (procedureTypeOptions.value.length === 0 || procedureStatusOptions.value.length === 0) {
+    const [typeOpts, statusOpts] = await Promise.all([
+      getTypesProcedure().catch(() => []),
+      getStatutsProcedure().catch(() => []),
+    ]);
+    if (procedureTypeOptions.value.length === 0) {
+      procedureTypeOptions.value = typeOpts;
+    }
+    if (procedureStatusOptions.value.length === 0) {
+      procedureStatusOptions.value = statusOpts;
+    }
+  }
+}
+
+function closeNewProcedureDrawer() {
+  newProcedureDrawerOpen.value = false;
+}
+
+async function saveNewProcedure() {
+  if (!newProcedureForm.type.trim() || !newProcedureForm.statut.trim()) {
+    newProcedureError.value = 'Le type et le statut sont obligatoires.';
+    return;
+  }
+
+  isCreatingProcedure.value = true;
+  newProcedureError.value = '';
+
+  try {
+    const created = await createProcedure({
+      dossierId,
+      type: newProcedureForm.type,
+      statut: newProcedureForm.statut,
+      debut: newProcedureForm.debut,
+      fin: newProcedureForm.fin,
+    });
+
+    await loadProcedures();
+    selectedProcedureId.value = created.id;
+    closeNewProcedureDrawer();
+  } catch (error) {
+    newProcedureError.value = error instanceof Error ? error.message : 'Erreur lors de la creation de la procedure.';
+  } finally {
+    isCreatingProcedure.value = false;
+  }
+}
+
 function goBackToDossiers() {
   router.push({ name: 'dossiers' });
 }
@@ -825,8 +1082,13 @@ function goBackToDossiers() {
       <div class="detail-layout">
         <div class="card procedures-card compact-card">
           <div class="block-header">
-            <p class="action-bar-title">Procedures associees</p>
-            <p class="action-bar-caption">{{ proceduresSummary }}</p>
+            <div class="block-header-row">
+              <div>
+                <p class="action-bar-title">Procedures associees</p>
+                <p class="action-bar-caption">{{ proceduresSummary }}</p>
+              </div>
+              <button class="button-add-procedure" type="button" title="Ajouter une procedure" @click="openNewProcedureDrawer">+</button>
+            </div>
           </div>
 
           <ul v-if="dossierProcedures.length > 0" class="procedure-list">
@@ -952,36 +1214,6 @@ function goBackToDossiers() {
                 <p v-if="procedureIsSaving" class="action-bar-caption">Enregistrement en cours...</p>
                 <p v-else-if="procedureSaveError" class="action-bar-caption autosave-error">{{ procedureSaveError }}</p>
                 <p v-else-if="procedureLastSavedAt" class="action-bar-caption">Derniere sauvegarde procedure: {{ procedureLastSavedAt }}</p>
-
-                <div class="instances-block">
-                  <p class="action-bar-title">Instances associees</p>
-                  <ul v-if="selectedProcedureInstances.length > 0" class="list-rows">
-                    <li
-                      v-for="instance in selectedProcedureInstances"
-                      :key="instance.id"
-                      class="list-row instance-row"
-                      @click.stop="openInstanceDrawer(instance)"
-                    >
-                      <div>
-                        <p class="list-row-title">{{ instance.type }}</p>
-                        <p class="list-row-subtitle">
-                          Debut: {{ toDisplayDate(instance.debut) }} / Fin: {{ toDisplayDate(instance.fin) }}
-                        </p>
-                      </div>
-                      <div class="instance-row-meta">
-                        <span class="instance-edit-hint" aria-hidden="true">
-                          <svg class="instance-edit-icon" viewBox="0 0 24 24" fill="none">
-                            <path d="M4 20H8L18.2 9.8C18.9 9.1 18.9 7.9 18.2 7.2L16.8 5.8C16.1 5.1 14.9 5.1 14.2 5.8L4 16V20Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                            <path d="M13 7L17 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-                          </svg>
-                          Modifier
-                        </span>
-                        <span :class="['status-pill', getStatusColorClass(instance.statut)]">{{ instance.statut }}</span>
-                      </div>
-                    </li>
-                  </ul>
-                  <p v-else class="action-bar-caption">Aucune instance associee a cette procedure.</p>
-                </div>
               </template>
               <p v-else class="action-bar-caption">Aucune procedure selectionnee.</p>
             </template>
@@ -1013,6 +1245,99 @@ function goBackToDossiers() {
             </template>
           </div>
         </div>
+
+        <div class="card instances-timeline-card">
+          <div class="block-header">
+            <div class="block-header-row">
+              <div>
+                <p class="action-bar-title">Echeancier</p>
+                <p v-if="selectedProcedure" class="action-bar-caption">
+                  {{ selectedProcedureInstances.length }} instance{{ selectedProcedureInstances.length > 1 ? 's' : '' }}
+                </p>
+                <p v-else class="action-bar-caption">Selectionnez une procedure</p>
+              </div>
+              <button v-if="selectedProcedure" class="button-add-procedure" type="button" title="Ajouter une instance" @click="openNewInstanceDrawer">+</button>
+            </div>
+          </div>
+
+          <template v-if="selectedProcedure">
+            <div v-if="selectedProcedureInstances.length > 0" class="timeline">
+              <div
+                v-for="(instance, index) in selectedProcedureInstances"
+                :key="instance.id"
+                class="timeline-item"
+                @click="openInstanceDrawer(instance)"
+              >
+                <div class="timeline-connector">
+                  <div :class="['timeline-dot', getStatusColorClass(instance.statut)]"></div>
+                  <div v-if="index < selectedProcedureInstances.length - 1" class="timeline-line"></div>
+                </div>
+                <div class="timeline-content">
+                  <div class="timeline-header">
+                    <p class="timeline-title">{{ instance.type }}</p>
+                    <span :class="['status-pill', getStatusColorClass(instance.statut)]">{{ instance.statut }}</span>
+                  </div>
+                  <p class="timeline-dates">
+                    <span>{{ toDisplayDate(instance.debut) }}</span>
+                    <span v-if="instance.fin && instance.fin !== instance.debut"> → {{ toDisplayDate(instance.fin) }}</span>
+                  </p>
+                  <button class="timeline-edit-btn" type="button" tabindex="-1">Modifier →</button>
+                </div>
+              </div>
+            </div>
+            <p v-else class="action-bar-caption">Aucune instance associee.</p>
+          </template>
+        </div>
+      </div>
+
+      <div class="card documents-associes-card">
+        <div class="block-header-row">
+          <div>
+            <p class="action-bar-title">Documents associes</p>
+            <p class="action-bar-caption">
+              <template v-if="loadingDossierDocuments">Chargement...</template>
+              <template v-else>{{ dossierDocuments.length }} document{{ dossierDocuments.length > 1 ? 's' : '' }} lies au dossier</template>
+            </p>
+          </div>
+        </div>
+
+        <template v-if="!loadingDossierDocuments">
+          <table v-if="dossierDocuments.length > 0" class="docs-table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Procedure</th>
+                <th>Instance</th>
+                <th>Auteur</th>
+                <th>Date</th>
+                <th>Statut</th>
+                <th style="width: 50px; text-align: center;">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="doc in dossierDocuments" :key="doc.id" class="docs-table-row" @click="openDocumentDrawer(doc)">
+                <td>{{ doc.type }}</td>
+                <td>{{ doc.procedureId ? '#' + doc.procedureId : '—' }}</td>
+                <td>{{ doc.instanceId ? '#' + doc.instanceId : '—' }}</td>
+                <td>{{ doc.auteur }}</td>
+                <td>{{ doc.dateCreation || '—' }}</td>
+                <td><span :class="['status-pill', getStatusColorClass(doc.statut)]">{{ doc.statut }}</span></td>
+                <td class="docs-table-actions">
+                  <button
+                    class="button button-danger button-xs"
+                    type="button"
+                    aria-label="Supprimer"
+                    title="Supprimer le document"
+                    @click.stop="deleteDocumentFromList(doc.id)"
+                  >
+                    Supprimer
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p v-else class="action-bar-caption">Aucun document associe a ce dossier.</p>
+        </template>
       </div>
 
       <DrawerPanel
@@ -1191,6 +1516,195 @@ function goBackToDossiers() {
           </button>
         </template>
       </DrawerPanel>
+
+      <DrawerPanel
+        :open="newInstanceDrawerOpen"
+        title="Nouvelle instance"
+        description="Creation d'une instance associee a la procedure selectionnee"
+        @close="closeNewInstanceDrawer"
+      >
+        <form class="form-grid" @submit.prevent="saveNewInstance">
+          <p v-if="isLoadingInstanceReferences" class="action-bar-caption">Chargement des references...</p>
+          <label>
+            Type d'instance
+            <select v-model="newInstanceForm.type" class="input" required>
+              <option value="" disabled>Choisir un type</option>
+              <option
+                v-for="instanceType in instanceTypeOptions"
+                :key="`ni-${instanceType.id}-${instanceType.libelle}`"
+                :value="instanceType.libelle"
+              >
+                {{ instanceType.libelle }}
+              </option>
+            </select>
+          </label>
+          <label>
+            Statut
+            <select v-model="newInstanceForm.statut" class="input" required>
+              <option value="" disabled>Choisir un statut</option>
+              <option
+                v-for="status in instanceStatusOptions"
+                :key="`ni-${status.id}-${status.libelle}`"
+                :value="status.libelle"
+              >
+                {{ status.libelle }}
+              </option>
+            </select>
+          </label>
+          <label>
+            Date debut
+            <input v-model="newInstanceForm.debut" class="input" type="date" />
+          </label>
+          <label>
+            Date fin
+            <input v-model="newInstanceForm.fin" class="input" type="date" />
+          </label>
+        </form>
+        <p v-if="newInstanceError" class="autosave-error">{{ newInstanceError }}</p>
+        <template #footer>
+          <button class="button button-secondary" type="button" @click="closeNewInstanceDrawer">Annuler</button>
+          <button class="button" type="button" :disabled="isCreatingInstance" @click="saveNewInstance">
+            {{ isCreatingInstance ? 'Creation...' : 'Creer l\'instance' }}
+          </button>
+        </template>
+      </DrawerPanel>
+
+      <DrawerPanel
+        :open="newProcedureDrawerOpen"
+        title="Nouvelle procedure"
+        description="Creation d'une procedure associee au dossier courant"
+        @close="closeNewProcedureDrawer"
+      >
+        <form class="form-grid" @submit.prevent="saveNewProcedure">
+          <label>
+            Type procedure
+            <select v-model="newProcedureForm.type" class="input" required>
+              <option value="" disabled>Choisir un type</option>
+              <option
+                v-for="procedureType in procedureTypeOptions"
+                :key="`new-${procedureType.id}-${procedureType.libelle}`"
+                :value="procedureType.libelle"
+              >
+                {{ procedureType.libelle }}
+              </option>
+            </select>
+          </label>
+          <label>
+            Statut
+            <select v-model="newProcedureForm.statut" class="input" required>
+              <option value="" disabled>Choisir un statut</option>
+              <option
+                v-for="status in procedureStatusOptions"
+                :key="`new-${status.id}-${status.libelle}`"
+                :value="status.libelle"
+              >
+                {{ status.libelle }}
+              </option>
+            </select>
+          </label>
+          <label>
+            Date debut
+            <input v-model="newProcedureForm.debut" class="input" type="date" />
+          </label>
+          <label>
+            Date fin
+            <input v-model="newProcedureForm.fin" class="input" type="date" />
+          </label>
+        </form>
+        <p v-if="newProcedureError" class="autosave-error">{{ newProcedureError }}</p>
+        <template #footer>
+          <button class="button button-secondary" type="button" @click="closeNewProcedureDrawer">Annuler</button>
+          <button class="button" type="button" :disabled="isCreatingProcedure" @click="saveNewProcedure">
+            {{ isCreatingProcedure ? 'Creation...' : 'Creer la procedure' }}
+          </button>
+        </template>
+      </DrawerPanel>
+
+      <Teleport to="body">
+        <div v-if="docDrawerOpen" class="doc-modal-overlay" @mousedown.self="closeDocumentDrawer" @keydown.esc="closeDocumentDrawer">
+          <div class="doc-modal" role="dialog" aria-modal="true" :aria-label="docDrawerDoc ? 'Edition: ' + docDrawerDoc.type : 'Edition du document'">
+            <div class="doc-modal-header">
+              <div>
+                <p class="action-bar-title">{{ docDrawerDoc?.type ?? 'Document' }}</p>
+                <p class="action-bar-caption">{{ docDrawerDoc?.dateCreation || '' }}</p>
+              </div>
+              <button class="doc-modal-close" type="button" aria-label="Fermer" @click="closeDocumentDrawer">✕</button>
+            </div>
+
+            <div class="doc-modal-body">
+              <template v-if="docDrawerDoc">
+                <div class="doc-drawer-type">
+                  <label>
+                    Type de document
+                    <select v-model="docDrawerType" class="input" required>
+                      <option value="" disabled>Choisir un type</option>
+                      <option v-for="type in documentTypeOptions" :key="type.id" :value="type.libelle">
+                        {{ type.libelle }}
+                      </option>
+                    </select>
+                  </label>
+                </div>
+
+                <dl class="doc-drawer-info">
+                  <dt>Auteur</dt>
+                  <dd>{{ docDrawerDoc.auteur }}</dd>
+                  <dt>Date creation</dt>
+                  <dd>{{ docDrawerDoc.dateCreation || '—' }}</dd>
+                  <dt>Procedure</dt>
+                  <dd>{{ docDrawerDoc.procedureId ? '#' + docDrawerDoc.procedureId : '—' }}</dd>
+                  <dt>Instance</dt>
+                  <dd>{{ docDrawerDoc.instanceId ? '#' + docDrawerDoc.instanceId : '—' }}</dd>
+                </dl>
+
+                <div class="doc-drawer-statut">
+                  <label>
+                    Statut
+                    <select v-model="docDrawerStatut" class="input" required>
+                      <option value="" disabled>Choisir un statut</option>
+                      <option value="brouillon">Brouillon</option>
+                      <option value="A relire">A relire</option>
+                      <option value="Valide">Valide</option>
+                      <option value="Archive">Archive</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div class="doc-model-selector">
+                  <label>
+                    Utiliser un modèle
+                    <select v-model="selectedTemplateId" class="input">
+                      <option value="" disabled>Choisir un modèle...</option>
+                      <option v-for="modele in availableModeles" :key="modele.id" :value="String(modele.id)">
+                        {{ modele.nomModele }}
+                      </option>
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    class="button button-secondary"
+                    :disabled="!selectedTemplateId || isLoadingTemplate"
+                    @click="applyTemplate"
+                  >
+                    {{ isLoadingTemplate ? 'Application...' : 'Appliquer le modèle' }}
+                  </button>
+                </div>
+
+                <p class="doc-editor-label">Contenu</p>
+                <div v-if="docDrawerIsLoading" class="action-bar-caption">Chargement du contenu...</div>
+                <RichTextEditor v-else v-model="docDrawerContenu" placeholder="Rédigez le contenu du document…" />
+                <p v-if="docDrawerError" class="autosave-error">{{ docDrawerError }}</p>
+              </template>
+            </div>
+
+            <div class="doc-modal-footer">
+              <button class="button button-secondary" type="button" @click="closeDocumentDrawer">Fermer</button>
+              <button class="button" type="button" :disabled="docDrawerIsSaving || docDrawerIsLoading" @click="saveDocumentDrawer">
+                {{ docDrawerIsSaving ? 'Enregistrement...' : 'Enregistrer' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Teleport>
     </div>
 
     <div v-else class="card state-card">
@@ -1292,7 +1806,7 @@ function goBackToDossiers() {
 
 .detail-layout {
   display: grid;
-  grid-template-columns: minmax(180px, 0.42fr) minmax(0, 1.58fr);
+  grid-template-columns: minmax(180px, 0.42fr) minmax(0, 1.2fr) minmax(160px, 0.5fr);
   gap: 1rem;
   align-items: start;
   margin-top: 1.1rem;
@@ -1304,6 +1818,337 @@ function goBackToDossiers() {
   margin-bottom: 0.9rem;
   padding-bottom: 0.8rem;
   border-bottom: 1px solid var(--border-color);
+}
+
+.block-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.instances-block-header {
+  margin-bottom: 0.6rem;
+}
+
+.instances-timeline-card {
+  /* dans la grille detail-layout, pas de marge supplémentaire */
+}
+
+.documents-associes-card {
+  margin-top: 1rem;
+}
+
+.docs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.docs-table th {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-caption, #59627c);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.docs-table td {
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--color-text, #111);
+}
+
+.docs-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.docs-table tbody tr:hover td {
+  background: var(--bg-muted);
+}
+
+.docs-table-row {
+  cursor: pointer;
+}
+
+.docs-table-actions {
+  padding: 0 !important;
+  text-align: center;
+}
+
+.button-xs {
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.button-danger {
+  background: var(--color-danger, #dc2626);
+  border-color: var(--color-danger, #dc2626);
+  color: #fff;
+}
+
+.button-danger:hover {
+  background: var(--color-danger-hover, #b91c1c);
+  border-color: var(--color-danger-hover, #b91c1c);
+}
+
+/* Document Modal */
+.doc-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.doc-modal {
+  background: white;
+  border-radius: 0.5rem;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  max-width: 80%;
+  max-height: 90vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.doc-modal-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.doc-modal-header > div > p:first-child {
+  margin: 0;
+}
+
+.doc-modal-header > div > p:last-child {
+  margin: 0.3rem 0 0;
+}
+
+.doc-modal-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0;
+  color: var(--color-caption, #59627c);
+  transition: color 0.2s;
+}
+
+.doc-modal-close:hover {
+  color: var(--color-text, #111);
+}
+
+.doc-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+
+.doc-modal-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.8rem;
+}
+
+@media (max-width: 768px) {
+  .doc-modal {
+    max-width: 95%;
+    max-height: 95vh;
+  }
+}
+
+.doc-drawer-info {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.3rem 0.8rem;
+  font-size: 0.88rem;
+  margin: 0;
+}
+
+.doc-drawer-info dt {
+  font-weight: 600;
+  color: var(--color-caption, #59627c);
+}
+
+.doc-drawer-info dd {
+  margin: 0;
+  color: var(--color-text, #111);
+}
+
+.doc-drawer-type {
+  margin-top: 0.5rem;
+  margin-bottom: 0.8rem;
+}
+
+.doc-drawer-type label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.doc-drawer-statut {
+  margin-top: 1rem;
+}
+
+.doc-drawer-statut label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.doc-model-selector {
+  margin-top: 1rem;
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-end;
+}
+
+.doc-model-selector label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.doc-model-selector select {
+  flex: 1;
+}
+
+.doc-editor-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-caption, #59627c);
+  margin: 1rem 0 0.4rem;
+}
+
+/* Timeline */
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding-top: 0.25rem;
+}
+
+.timeline-item {
+  display: grid;
+  grid-template-columns: 2rem 1fr;
+  gap: 0 0.75rem;
+  cursor: pointer;
+}
+
+.timeline-item:hover .timeline-content {
+  background: var(--bg-muted);
+  border-radius: 8px;
+}
+
+.timeline-connector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 0.35rem;
+}
+
+.timeline-dot {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 2px solid var(--border-color);
+  background: var(--bg-panel);
+}
+
+.timeline-dot.status-ok      { background: var(--ok-bg);    border-color: var(--ok-text); }
+.timeline-dot.status-warn     { background: var(--warn-bg);  border-color: var(--warn-text); }
+.timeline-dot.status-alert    { background: var(--alert-bg); border-color: var(--alert-text); }
+.timeline-dot.status-neutral  { background: var(--bg-hover); border-color: var(--text-muted); }
+
+.timeline-line {
+  width: 2px;
+  flex: 1;
+  min-height: 1.5rem;
+  background: var(--border-color);
+  margin-top: 0.2rem;
+}
+
+.timeline-content {
+  padding: 0.35rem 0.6rem 0.8rem;
+  transition: background 0.15s;
+}
+
+.timeline-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.timeline-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.timeline-dates {
+  font-size: 0.78rem;
+  color: var(--text-subtle);
+  margin-top: 0.15rem;
+}
+
+.timeline-edit-btn {
+  margin-top: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.timeline-item:hover .timeline-edit-btn {
+  color: var(--accent);
+}
+
+.button-add-procedure {
+  display: inline-grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-muted);
+  color: var(--text-main);
+  font-size: 1.1rem;
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.button-add-procedure:hover {
+  background: var(--bg-panel);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .procedure-header-row {
@@ -1581,7 +2426,7 @@ function goBackToDossiers() {
 
 @media (max-width: 1320px) {
   .detail-layout {
-    grid-template-columns: minmax(170px, 0.42fr) minmax(0, 1.58fr);
+    grid-template-columns: minmax(170px, 0.42fr) minmax(0, 1.2fr) minmax(150px, 0.45fr);
   }
 
   .dossier-inline-details {
@@ -1603,7 +2448,11 @@ function goBackToDossiers() {
   }
 
   .detail-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .instances-timeline-card {
+    grid-column: 1 / -1;
   }
 
   .dossier-inline-details {

@@ -78,6 +78,7 @@ export interface DocumentItem {
   statut: string;
   modeleId?: number;
   modeleVersion?: number;
+  contenuJson?: Record<string, unknown>;
 }
 
 export interface ModeleDocumentItem {
