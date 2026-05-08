@@ -1772,10 +1772,11 @@ app.put('/api/dossiers/:id', async (request, response, next) => {
 
     const isAssocieeUpdate = getSessionContext(request).metier?.toLowerCase() === 'associee';
     let secretUpdateClause = '';
-    let secretUpdateValue = undefined;
+    const baseParams = [agenceId, clientId, typeId, statutId, reference, dateOuverture, dateEcheance, dossierId];
+    let queryParams = baseParams;
     if (isAssocieeUpdate && 'informationsSecretes' in request.body) {
       const secretRaw = toNullableText(request.body.informationsSecretes);
-      secretUpdateValue = secretRaw ? vaultEncrypt(secretRaw) : null;
+      queryParams = [...baseParams, secretRaw ? vaultEncrypt(secretRaw) : null];
       secretUpdateClause = ',\n            informations_secretes = $9';
     }
 
@@ -1791,9 +1792,7 @@ app.put('/api/dossiers/:id', async (request, response, next) => {
             date_cloture = $7::date${secretUpdateClause}
         WHERE id = $8
       `,
-      secretUpdateValue !== undefined
-        ? [agenceId, clientId, typeId, statutId, reference, dateOuverture, dateEcheance, dossierId, secretUpdateValue]
-        : [agenceId, clientId, typeId, statutId, reference, dateOuverture, dateEcheance, dossierId],
+      queryParams,
     );
 
     if (Number.isFinite(montant)) {
@@ -3588,7 +3587,7 @@ app.post('/api/collaborateur', async (request, response, next) => {
     const agenceId = request.body?.agenceId ? Number(request.body.agenceId) : null;
     const metierId = request.body?.metierId ? Number(request.body.metierId) : null;
     const dateEntree = toNullableText(request.body?.dateEntree);
-    const actif = request.body?.actif !== undefined ? Boolean(request.body.actif) : true;
+    const actif = request.body?.actif === undefined ? true : Boolean(request.body.actif);
 
     const result = await query(
       `INSERT INTO collaborateur (nom, prenom, email, telephone, id_agence, id_metier, date_entree, actif)
@@ -3640,7 +3639,7 @@ app.put('/api/collaborateur/:id', async (request, response, next) => {
     const agenceId = request.body?.agenceId ? Number(request.body.agenceId) : null;
     const metierId = request.body?.metierId ? Number(request.body.metierId) : null;
     const dateEntree = toNullableText(request.body?.dateEntree);
-    const actif = request.body?.actif !== undefined ? Boolean(request.body.actif) : true;
+    const actif = request.body?.actif === undefined ? true : Boolean(request.body.actif);
 
     const result = await query(
       `UPDATE collaborateur
