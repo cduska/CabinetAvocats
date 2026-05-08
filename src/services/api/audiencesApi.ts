@@ -8,45 +8,62 @@ import {
   requestJson,
 } from './utils';
 
-type AudienceNeonRow = {
-  id: number;
+type InstanceNeonAudienceEntry = {
+  id?: number | null;
   date_audience?: string | null;
   commentaire?: string | null;
-  instance_juridique?: {
+};
+
+type InstanceNeonRow = {
+  id: number;
+  date_debut?: string | null;
+  audience?: InstanceNeonAudienceEntry[] | null;
+  type_instance?: { libelle?: string | null } | null;
+  procedure?: {
     id?: number | null;
-    type_instance?: { libelle?: string | null } | null;
-    procedure?: {
+    type_procedure?: { libelle?: string | null } | null;
+    statut_procedure?: { libelle?: string | null } | null;
+    dossier?: {
       id?: number | null;
-      type_procedure?: { libelle?: string | null } | null;
-      statut_procedure?: { libelle?: string | null } | null;
-      dossier?: {
-        id?: number | null;
-        reference?: string | null;
-        type_dossier?: { libelle?: string | null } | null;
-        agence?: { nom?: string | null; ville?: string | null } | null;
-      } | null;
+      reference?: string | null;
+      type_dossier?: { libelle?: string | null } | null;
+      agence?: { nom?: string | null; ville?: string | null } | null;
     } | null;
   } | null;
 };
 
-function mapAudienceRow(row: AudienceNeonRow): AudienceItem {
-  return {
-    id: row.id,
-    procedureId: row.instance_juridique?.procedure?.id ?? null,
-    dossierId: row.instance_juridique?.procedure?.dossier?.id ?? null,
-    dossierReference: row.instance_juridique?.procedure?.dossier?.reference ?? '',
-    dossierType: row.instance_juridique?.procedure?.dossier?.type_dossier?.libelle ?? 'Non renseigne',
-    procedureType: row.instance_juridique?.procedure?.type_procedure?.libelle ?? 'Non renseigne',
-    procedureStatut: row.instance_juridique?.procedure?.statut_procedure?.libelle ?? 'Non renseigne',
-    instanceType: row.instance_juridique?.type_instance?.libelle ?? 'Instance',
-    dateAudience: row.date_audience ?? '',
-    commentaire: row.commentaire ?? '',
+function mapInstanceNeonRow(row: InstanceNeonRow): AudienceItem[] {
+  const base = {
+    procedureId: row.procedure?.id ?? null,
+    dossierId: row.procedure?.dossier?.id ?? null,
+    dossierReference: row.procedure?.dossier?.reference ?? '',
+    dossierType: row.procedure?.dossier?.type_dossier?.libelle ?? 'Non renseigne',
+    procedureType: row.procedure?.type_procedure?.libelle ?? 'Non renseigne',
+    procedureStatut: row.procedure?.statut_procedure?.libelle ?? 'Non renseigne',
+    instanceType: row.type_instance?.libelle ?? 'Instance',
   };
+
+  const audiences = row.audience ?? [];
+  if (audiences.length === 0) {
+    return [{
+      ...base,
+      id: row.id,
+      dateAudience: row.date_debut ?? '',
+      commentaire: '',
+    }];
+  }
+
+  return audiences.map((aud) => ({
+    ...base,
+    id: aud.id ?? row.id,
+    dateAudience: aud.date_audience ?? '',
+    commentaire: aud.commentaire ?? '',
+  }));
 }
 
-function getAudienceAgency(row: AudienceNeonRow): string {
-  return row.instance_juridique?.procedure?.dossier?.agence?.nom
-    || row.instance_juridique?.procedure?.dossier?.agence?.ville
+function getInstanceAgency(row: InstanceNeonRow): string {
+  return row.procedure?.dossier?.agence?.nom
+    || row.procedure?.dossier?.agence?.ville
     || '';
 }
 
@@ -70,17 +87,17 @@ function isInUpcoming7d(dateValue?: string | null): boolean {
 
 async function getAudiencesFromNeon(preset?: 'upcoming7d'): Promise<AudienceItem[]> {
   const params = new URLSearchParams();
-  params.set('select', 'id,date_audience,commentaire,instance_juridique(id,type_instance(libelle),procedure(id,type_procedure(libelle),statut_procedure(libelle),dossier(id,reference,type_dossier(libelle),agence(nom,ville))))');
-  params.set('order', 'date_audience.asc,id.asc');
+  params.set('select', 'id,date_debut,audience(id,date_audience,commentaire),type_instance(libelle),procedure(id,type_procedure(libelle),statut_procedure(libelle),dossier(id,reference,type_dossier(libelle),agence(nom,ville)))');
+  params.set('order', 'date_debut.asc,id.asc');
+  params.set('date_debut', 'not.is.null');
 
-  const rows = await requestNeonRest<AudienceNeonRow[]>(`/audience?${params.toString()}`);
+  const rows = await requestNeonRest<InstanceNeonRow[]>(`/instance_juridique?${params.toString()}`);
   const agency = String(getSessionAgency() ?? '').trim().toLowerCase();
 
-  const filtered = rows
-    .filter((row) => (agency ? getAudienceAgency(row).toLowerCase().includes(agency) : true))
-    .filter((row) => (preset === 'upcoming7d' ? isInUpcoming7d(row.date_audience) : true));
-
-  return filtered.map(mapAudienceRow);
+  return rows
+    .filter((row) => (agency ? getInstanceAgency(row).toLowerCase().includes(agency) : true))
+    .flatMap(mapInstanceNeonRow)
+    .filter((item) => (preset === 'upcoming7d' ? isInUpcoming7d(item.dateAudience) : true));
 }
 
 export async function getAudiences(preset?: 'upcoming7d') {

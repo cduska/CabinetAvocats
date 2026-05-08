@@ -2326,7 +2326,7 @@ app.get('/api/audiences', async (request, response, next) => {
     const result = await query(
       `
         SELECT
-          aud.id,
+          COALESCE(aud.id, ij.id) AS id,
           p.id AS "procedureId",
           d.id AS "dossierId",
           COALESCE(d.reference, '') AS "dossierReference",
@@ -2334,10 +2334,10 @@ app.get('/api/audiences', async (request, response, next) => {
           COALESCE(tp.libelle, 'Procedure') AS "procedureType",
           COALESCE(sp.libelle, 'Non renseigne') AS "procedureStatut",
           COALESCE(ti.libelle, 'Instance') AS "instanceType",
-          COALESCE(to_char(aud.date_audience, 'YYYY-MM-DD'), '') AS "dateAudience",
+          COALESCE(to_char(aud.date_audience, 'YYYY-MM-DD'), to_char(ij.date_debut, 'YYYY-MM-DD'), '') AS "dateAudience",
           COALESCE(aud.commentaire, '') AS commentaire
-        FROM audience aud
-        LEFT JOIN instance_juridique ij ON ij.id = aud.id_instance
+        FROM instance_juridique ij
+        LEFT JOIN audience aud ON aud.id_instance = ij.id
         LEFT JOIN type_instance ti ON ti.id = ij.id_type_instance
         LEFT JOIN "procedure" p ON p.id = ij.id_procedure
         LEFT JOIN type_procedure tp ON tp.id = p.id_type_procedure
@@ -2346,7 +2346,8 @@ app.get('/api/audiences', async (request, response, next) => {
         LEFT JOIN type_dossier td ON td.id = d.id_type_dossier
         LEFT JOIN client c ON c.id = d.id_client
         LEFT JOIN agence a ON a.id = d.id_agence
-        WHERE ($1::text IS NULL OR a.id::text = $1 OR lower(a.nom) = lower($1) OR lower(a.ville) = lower($1))
+        WHERE COALESCE(aud.date_audience, ij.date_debut) IS NOT NULL
+          AND ($1::text IS NULL OR a.id::text = $1 OR lower(a.nom) = lower($1) OR lower(a.ville) = lower($1))
           AND ($2::int IS NULL
             OR c.id_collaborateur_responsable = $2
             OR EXISTS (
@@ -2363,8 +2364,8 @@ app.get('/api/audiences', async (request, response, next) => {
                 AND ap.id_collaborateur = $2
                 AND (ap.date_fin IS NULL OR ap.date_fin >= CURRENT_DATE)
             ))
-          AND ($3::boolean = false OR aud.date_audience BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days')
-        ORDER BY aud.date_audience ASC NULLS LAST, aud.id ASC
+          AND ($3::boolean = false OR COALESCE(aud.date_audience, ij.date_debut) BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days')
+        ORDER BY COALESCE(aud.date_audience, ij.date_debut) ASC NULLS LAST, ij.id ASC
       `,
       [agenceFilter, collaborateurScope.collaborateurId, upcomingOnly],
     );
@@ -2466,69 +2467,78 @@ app.post('/api/documents', async (request, response, next) => {
     const auteurName = toNullableText(request.body.auteur) ?? sessionContext.user;
     const auteurId = await findCollaborateurId(auteurName);
     const statutDocument = toNullableText(request.body.statut) ?? 'brouillon';
+    const bodyProcedureId = toNullableText(String(request.body.procedureId ?? ''));
+    const bodyInstanceId = toNullableText(String(request.body.instanceId ?? ''));
+    const procedureIdToInsert = bodyProcedureId && isNumericIdentifier(bodyProcedureId) ? Number(bodyProcedureId) : null;
+    const instanceIdToInsert = bodyInstanceId && isNumericIdentifier(bodyInstanceId) ? Number(bodyInstanceId) : null;
+    const contenuJson = toJsonObject(request.body.contenuJson) ?? null;
 
-    let dossierId = null;
-    if (dossierIdentifier) {
-      const dossier = await query(
-        `
-          SELECT id
-          FROM dossier
-          WHERE id::text = $1
-             OR reference = $1
-          ORDER BY id DESC
-          LIMIT 1
-        `,
-        [dossierIdentifier],
-      );
-      dossierId = dossier.rows[0]?.id ?? null;
+    let dossierIdToInsert = null;
+    if (procedureIdToInsert === null && instanceIdToInsert === null) {
+      let dossierId = null;
+      if (dossierIdentifier) {
+        const dossierResult = await query(
+          `
+            SELECT id
+            FROM dossier
+            WHERE id::text = $1
+               OR reference = $1
+            ORDER BY id DESC
+            LIMIT 1
+          `,
+          [dossierIdentifier],
+        );
+        dossierId = dossierResult.rows[0]?.id ?? null;
+      }
+
+      if (dossierId === null) {
+        const fallbackDossier = await query(
+          `
+            SELECT d.id
+            FROM dossier d
+            LEFT JOIN client c ON c.id = d.id_client
+            LEFT JOIN agence a ON a.id = d.id_agence
+            WHERE ($1::text IS NULL OR a.id::text = $1 OR lower(a.nom) = lower($1) OR lower(a.ville) = lower($1))
+              AND ($2::int IS NULL
+                OR c.id_collaborateur_responsable = $2
+                OR EXISTS (
+                  SELECT 1
+                  FROM affectation_dossier ad
+                  WHERE ad.id_dossier = d.id
+                    AND ad.id_collaborateur = $2
+                    AND (ad.date_fin IS NULL OR ad.date_fin >= CURRENT_DATE)
+                )
+                OR EXISTS (
+                  SELECT 1
+                  FROM affectation_procedure ap
+                  INNER JOIN "procedure" p ON p.id = ap.id_procedure
+                  WHERE p.id_dossier = d.id
+                    AND ap.id_collaborateur = $2
+                    AND (ap.date_fin IS NULL OR ap.date_fin >= CURRENT_DATE)
+                ))
+            ORDER BY d.id DESC
+            LIMIT 1
+          `,
+          [agenceFilter, collaborateurScope.collaborateurId],
+        );
+        dossierId = fallbackDossier.rows[0]?.id ?? null;
+      }
+
+      if (dossierId === null) {
+        response.status(400).json({ message: 'Aucun dossier disponible pour creer un document.' });
+        return;
+      }
+      dossierIdToInsert = dossierId;
     }
 
-    if (dossierId === null) {
-      const fallbackDossier = await query(
-        `
-          SELECT d.id
-          FROM dossier d
-          LEFT JOIN client c ON c.id = d.id_client
-          LEFT JOIN agence a ON a.id = d.id_agence
-          WHERE ($1::text IS NULL OR a.id::text = $1 OR lower(a.nom) = lower($1) OR lower(a.ville) = lower($1))
-            AND ($2::int IS NULL
-              OR c.id_collaborateur_responsable = $2
-              OR EXISTS (
-                SELECT 1
-                FROM affectation_dossier ad
-                WHERE ad.id_dossier = d.id
-                  AND ad.id_collaborateur = $2
-                  AND (ad.date_fin IS NULL OR ad.date_fin >= CURRENT_DATE)
-              )
-              OR EXISTS (
-                SELECT 1
-                FROM affectation_procedure ap
-                INNER JOIN "procedure" p ON p.id = ap.id_procedure
-                WHERE p.id_dossier = d.id
-                  AND ap.id_collaborateur = $2
-                  AND (ap.date_fin IS NULL OR ap.date_fin >= CURRENT_DATE)
-              ))
-          ORDER BY d.id DESC
-          LIMIT 1
-        `,
-        [agenceFilter, collaborateurScope.collaborateurId],
-      );
-
-      dossierId = fallbackDossier.rows[0]?.id ?? null;
-    }
-
-    if (dossierId === null) {
-      response.status(400).json({ message: 'Aucun dossier disponible pour creer un document.' });
-      return;
-    }
-
+    const metadataJson = contenuJson ? JSON.stringify({ contenuJson }) : null;
     const inserted = await query(
       `
-        INSERT INTO document (id_type_document, id_dossier, auteur, chemin_fichier, date_creation, statut_document)
-        VALUES ($1, $2, $3, $4, NOW(), $5)
+        INSERT INTO document (id_type_document, id_dossier, id_procedure, id_instance, auteur, chemin_fichier, date_creation, statut_document, metadata_json)
+        VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8)
         RETURNING id
       `,
-      [typeId, dossierId, auteurId, '/documents/local', statutDocument],
+      [typeId, dossierIdToInsert, procedureIdToInsert, instanceIdToInsert, auteurId, '/documents/local', statutDocument, metadataJson],
     );
 
     const row = await getDocumentById(inserted.rows[0].id);

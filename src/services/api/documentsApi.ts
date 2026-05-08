@@ -253,23 +253,41 @@ export async function deleteDocument(id: number): Promise<void> {
   });
 }
 
+async function resolveNeonDocumentParent(payload: {
+  dossierReference?: string;
+  procedureId?: number;
+  instanceId?: number;
+}): Promise<{ id_dossier?: number; id_procedure?: number; id_instance?: number }> {
+  if (payload.instanceId) {
+    return { id_instance: payload.instanceId };
+  }
+  if (payload.procedureId) {
+    return { id_procedure: payload.procedureId };
+  }
+  const dossierIdRaw = await findDossierId(payload.dossierReference);
+  const dossierId = dossierIdRaw ?? await findFallbackDossierId();
+  if (!dossierId) {
+    throw new Error('Aucun dossier disponible pour creer un document.');
+  }
+  return { id_dossier: dossierId };
+}
+
 export async function createDocument(payload: {
   type: string;
   dossierReference?: string;
   auteur: string;
   statut?: string;
+  procedureId?: number;
+  instanceId?: number;
+  contenuJson?: Record<string, unknown>;
 }) {
   if (isNeonDataApiEnabled()) {
-    const [typeId, dossierIdRaw, auteurId] = await Promise.all([
+    const [typeId, auteurId] = await Promise.all([
       findTypeDocumentId(payload.type),
-      findDossierId(payload.dossierReference),
       findAuteurId(payload.auteur),
     ]);
-    const dossierId = dossierIdRaw ?? await findFallbackDossierId();
 
-    if (!dossierId) {
-      throw new Error('Aucun dossier disponible pour creer un document.');
-    }
+    const parent = await resolveNeonDocumentParent(payload);
 
     const inserted = await requestNeonRest<Array<{ id: number }>>('/document', {
       method: 'POST',
@@ -278,11 +296,12 @@ export async function createDocument(payload: {
       },
       body: JSON.stringify({
         id_type_document: typeId,
-        id_dossier: dossierId,
+        ...parent,
         auteur: auteurId,
         chemin_fichier: '/documents/local',
         date_creation: new Date().toISOString(),
         statut_document: payload.statut ?? 'brouillon',
+        ...(payload.contenuJson ? { metadata_json: { contenuJson: payload.contenuJson } } : {}),
       }),
     });
 

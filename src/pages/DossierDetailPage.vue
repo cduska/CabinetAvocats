@@ -23,7 +23,7 @@ import {
   getTypesDocument,
 } from '../services/api';
 import { createProcedure, createProcedureInstance } from '../services/api/proceduresApi';
-import { getDocumentsByDossier, getDocumentById as fetchDocumentById, updateDocument, deleteDocument } from '../services/api/documentsApi';
+import { getDocumentsByDossier, getDocumentById as fetchDocumentById, updateDocument, deleteDocument, createDocument } from '../services/api/documentsApi';
 import { getModeles, getModeleById } from '../services/api/modelesApi';
 import { decryptInformationsSecretes } from '../services/api/dossiersApi';
 import { useSession } from '../services/session';
@@ -124,6 +124,19 @@ const docDrawerSavedAt = ref('');
 const availableModeles = ref<any[]>([]);
 const selectedTemplateId = ref('');
 const isLoadingTemplate = ref(false);
+const newDocModalOpen = ref(false);
+const newDocIsSaving = ref(false);
+const newDocError = ref('');
+const newDocIsLoadingModele = ref(false);
+const newDocContenu = ref<Record<string, unknown>>({});
+const newDocInstancesForProcedure = ref<ProcedureInstance[]>([]);
+const newDocForm = reactive({
+  type: '',
+  statut: 'brouillon',
+  procedureId: '',
+  instanceId: '',
+  modeleId: '',
+});
 const isLoadingInstanceReferences = ref(false);
 const hasLoadedInstanceReferences = ref(false);
 const instanceReferencesError = ref('');
@@ -397,6 +410,92 @@ async function loadAvailableModeles() {
     availableModeles.value = modeles;
   } catch {
     availableModeles.value = [];
+  }
+}
+
+const modelesForNewDocType = computed(() => {
+  if (!newDocForm.type) return availableModeles.value;
+  const typeId = documentTypeOptions.value.find((t) => t.libelle === newDocForm.type)?.id ?? null;
+  if (typeId === null) return availableModeles.value;
+  return (availableModeles.value as any[]).filter((m) => m.typeDocumentId === typeId);
+});
+
+watch(() => newDocForm.type, () => {
+  newDocForm.modeleId = '';
+  newDocContenu.value = {};
+});
+
+watch(() => newDocForm.procedureId, async (procId) => {
+  newDocForm.instanceId = '';
+  newDocInstancesForProcedure.value = [];
+  if (!procId) return;
+  try {
+    newDocInstancesForProcedure.value = await getProcedureInstances(Number(procId));
+  } catch {
+    newDocInstancesForProcedure.value = [];
+  }
+});
+
+watch(() => newDocForm.modeleId, async (modeleId) => {
+  if (!modeleId) return;
+  newDocIsLoadingModele.value = true;
+  try {
+    const modele = await getModeleById(Number(modeleId));
+    if (modele?.contenuJson) {
+      newDocContenu.value = { ...modele.contenuJson };
+    }
+  } catch {
+    // silent
+  } finally {
+    newDocIsLoadingModele.value = false;
+  }
+});
+
+async function openNewDocModal() {
+  newDocForm.type = '';
+  newDocForm.statut = 'brouillon';
+  newDocForm.procedureId = '';
+  newDocForm.instanceId = '';
+  newDocForm.modeleId = '';
+  newDocContenu.value = {};
+  newDocError.value = '';
+  newDocInstancesForProcedure.value = [];
+  newDocModalOpen.value = true;
+  if (documentTypeOptions.value.length === 0) {
+    try { documentTypeOptions.value = await getTypesDocument(); } catch { documentTypeOptions.value = []; }
+  }
+  if (availableModeles.value.length === 0) {
+    void loadAvailableModeles();
+  }
+}
+
+function closeNewDocModal() {
+  newDocModalOpen.value = false;
+}
+
+async function saveNewDocument() {
+  if (!newDocForm.type.trim()) {
+    newDocError.value = 'Le type de document est obligatoire.';
+    return;
+  }
+  newDocIsSaving.value = true;
+  newDocError.value = '';
+  try {
+    const created = await createDocument({
+      type: newDocForm.type,
+      dossierReference: dossier.value?.reference,
+      auteur: '',
+      statut: newDocForm.statut || 'brouillon',
+      procedureId: newDocForm.procedureId ? Number(newDocForm.procedureId) : undefined,
+      instanceId: newDocForm.instanceId ? Number(newDocForm.instanceId) : undefined,
+      contenuJson: Object.keys(newDocContenu.value).length > 0 ? newDocContenu.value : undefined,
+    });
+    dossierDocuments.value = [created, ...dossierDocuments.value];
+    closeNewDocModal();
+  } catch (error) {
+    newDocError.value = error instanceof Error ? error.message : 'Erreur lors de la creation du document.';
+  } finally {
+    newDocIsSaving.value = false;
   }
 }
 
@@ -1302,6 +1401,7 @@ function goBackToDossiers() {
               <template v-else>{{ dossierDocuments.length }} document{{ dossierDocuments.length > 1 ? 's' : '' }} lies au dossier</template>
             </p>
           </div>
+          <button class="button-add-procedure" type="button" title="Ajouter un document" @click="openNewDocModal">+</button>
         </div>
 
         <template v-if="!loadingDossierDocuments">
@@ -1703,6 +1803,83 @@ function goBackToDossiers() {
               <button class="button button-secondary" type="button" @click="closeDocumentDrawer">Fermer</button>
               <button class="button" type="button" :disabled="docDrawerIsSaving || docDrawerIsLoading" @click="saveDocumentDrawer">
                 {{ docDrawerIsSaving ? 'Enregistrement...' : 'Enregistrer' }}
+              </button>
+            </div>
+          </dialog>
+        </div>
+      </Teleport>
+
+      <Teleport to="body">
+        <div v-if="newDocModalOpen" class="doc-modal-overlay" @mousedown.self="closeNewDocModal">
+          <dialog class="doc-modal" open aria-label="Nouveau document">
+            <div class="doc-modal-header">
+              <div>
+                <p class="action-bar-title">Nouveau document</p>
+                <p class="action-bar-caption">Dossier : {{ dossier?.reference }}</p>
+              </div>
+              <button class="doc-modal-close" type="button" aria-label="Fermer" @click="closeNewDocModal">✕</button>
+            </div>
+
+            <div class="doc-modal-body">
+              <div class="new-doc-attrs-grid">
+                <label>
+                  Type de document <span class="required-star">*</span>
+                  <select v-model="newDocForm.type" class="input" required>
+                    <option value="" disabled>Choisir un type</option>
+                    <option v-for="t in documentTypeOptions" :key="t.id" :value="t.libelle">{{ t.libelle }}</option>
+                  </select>
+                </label>
+                <label>
+                  Statut
+                  <select v-model="newDocForm.statut" class="input">
+                    <option value="brouillon">Brouillon</option>
+                    <option value="A relire">A relire</option>
+                    <option value="Valide">Valide</option>
+                    <option value="Archive">Archive</option>
+                  </select>
+                </label>
+                <label>
+                  Procedure (optionnel)
+                  <select v-model="newDocForm.procedureId" class="input">
+                    <option value="">— Aucune —</option>
+                    <option v-for="proc in dossierProcedures" :key="proc.id" :value="String(proc.id)">
+                      #{{ proc.id }} – {{ proc.type }}
+                    </option>
+                  </select>
+                </label>
+                <label>
+                  Instance (optionnel)
+                  <select v-model="newDocForm.instanceId" class="input" :disabled="!newDocForm.procedureId || newDocInstancesForProcedure.length === 0">
+                    <option value="">— Aucune —</option>
+                    <option v-for="inst in newDocInstancesForProcedure" :key="inst.id" :value="String(inst.id)">
+                      #{{ inst.id }} – {{ inst.type }} ({{ inst.statut }})
+                    </option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="new-doc-modele-row">
+                <label>
+                  Modele (optionnel)
+                  <select v-model="newDocForm.modeleId" class="input" :disabled="newDocIsLoadingModele">
+                    <option value="">— Aucun modèle —</option>
+                    <option v-for="m in modelesForNewDocType" :key="m.id" :value="String(m.id)">
+                      {{ m.nomModele }}
+                    </option>
+                  </select>
+                </label>
+                <span v-if="newDocIsLoadingModele" class="action-bar-caption new-doc-loading">Chargement du modèle...</span>
+              </div>
+
+              <p class="doc-editor-label">Contenu</p>
+              <RichTextEditor v-model="newDocContenu" placeholder="Rédigez le contenu du document…" />
+              <p v-if="newDocError" class="autosave-error new-doc-error">{{ newDocError }}</p>
+            </div>
+
+            <div class="doc-modal-footer">
+              <button class="button button-secondary" type="button" @click="closeNewDocModal">Annuler</button>
+              <button class="button" type="button" :disabled="newDocIsSaving" @click="saveNewDocument">
+                {{ newDocIsSaving ? 'Creation...' : 'Creer le document' }}
               </button>
             </div>
           </dialog>
@@ -2485,6 +2662,56 @@ function goBackToDossiers() {
 
   .procedure-detail-grid,
   .tabs {
+    grid-template-columns: 1fr;
+  }
+}
+
+.new-doc-attrs-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+  margin-bottom: 1rem;
+}
+
+.new-doc-attrs-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.new-doc-modele-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.new-doc-modele-row label {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.required-star {
+  color: var(--color-danger, #dc2626);
+}
+
+.new-doc-loading {
+  flex-shrink: 0;
+  padding-bottom: 0.4rem;
+}
+
+.new-doc-error {
+  margin-top: 0.6rem;
+}
+
+@media (max-width: 640px) {
+  .new-doc-attrs-grid {
     grid-template-columns: 1fr;
   }
 }
