@@ -4,6 +4,8 @@ import { useEditor, EditorContent } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import TextAlign from '@tiptap/extension-text-align';
+import TextStyle from '@tiptap/extension-text-style';
+import Color from '@tiptap/extension-color';
 
 const props = withDefaults(
   defineProps<{
@@ -30,6 +32,8 @@ const editor = useEditor({
     StarterKit,
     Underline,
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
+    TextStyle,
+    Color,
   ],
   editable: !props.readOnly,
   content: isTiptapDoc(props.modelValue) ? (props.modelValue as any) : null,
@@ -54,6 +58,10 @@ watch(
   () => props.readOnly,
   (val) => { editor.value?.setEditable(!val); },
 );
+
+defineExpose({
+  getHTML: () => editor.value?.getHTML() ?? '',
+});
 </script>
 
 <template>
@@ -83,6 +91,27 @@ watch(
       <button type="button" title="Aligner à gauche" :class="{ active: editor.isActive({ textAlign: 'left' }) }" @click="editor.chain().focus().setTextAlign('left').run()">⬅</button>
       <button type="button" title="Centrer" :class="{ active: editor.isActive({ textAlign: 'center' }) }" @click="editor.chain().focus().setTextAlign('center').run()">↔</button>
       <button type="button" title="Aligner à droite" :class="{ active: editor.isActive({ textAlign: 'right' }) }" @click="editor.chain().focus().setTextAlign('right').run()">➡</button>
+      <button type="button" title="Justifier" :class="{ active: editor.isActive({ textAlign: 'justify' }) }" @click="editor.chain().focus().setTextAlign('justify').run()">☰</button>
+      <span class="rte-sep" />
+      <!-- Code -->
+      <button type="button" title="Code inline" :class="{ active: editor.isActive('code') }" @click="editor.chain().focus().toggleCode().run()">&#60;/&#62;</button>
+      <button type="button" title="Bloc de code" :class="{ active: editor.isActive('codeBlock') }" @click="editor.chain().focus().toggleCodeBlock().run()">&#123;&#125;</button>
+      <span class="rte-sep" />
+      <!-- Couleur -->
+      <label class="rte-color-btn" title="Couleur du texte">
+        <span>A</span>
+        <input
+          type="color"
+          class="rte-color-input"
+          :value="(editor.getAttributes('textStyle').color as string) || '#000000'"
+          @input="(e) => editor.chain().focus().setColor((e.target as HTMLInputElement).value).run()"
+        />
+      </label>
+      <button type="button" title="Réinitialiser la couleur" @click="editor.chain().focus().unsetColor().run()">↺</button>
+      <span class="rte-sep" />
+      <!-- Divers -->
+      <button type="button" title="Ligne horizontale" @click="editor.chain().focus().setHorizontalRule().run()">—</button>
+      <button type="button" title="Effacer la mise en forme" @click="editor.chain().focus().unsetAllMarks().clearNodes().run()">✕ Style</button>
     </div>
     <EditorContent class="rte-content" :editor="editor" />
   </div>
@@ -145,6 +174,39 @@ watch(
 .rte-toolbar button:disabled {
   opacity: 0.35;
   cursor: default;
+}
+
+.rte-color-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  min-width: 2rem;
+  height: 1.75rem;
+  padding: 0 0.4rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-color, #344054);
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.rte-color-btn:hover {
+  background: var(--border-color, #e4e7ec);
+  border-color: var(--border-color, #d0d5dd);
+}
+
+.rte-color-input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  border: none;
+  padding: 0;
 }
 
 .rte-sep {

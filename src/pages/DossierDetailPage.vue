@@ -28,6 +28,7 @@ import { getModeles, getModeleById } from '../services/api/modelesApi';
 import { decryptInformationsSecretes } from '../services/api/dossiersApi';
 import { useSession } from '../services/session';
 import { getStatusColorClass } from '../services/status';
+import type RichTextEditorType from '../components/ui/RichTextEditor.vue';
 import type {
   Agence,
   Client,
@@ -124,6 +125,7 @@ const docDrawerSavedAt = ref('');
 const availableModeles = ref<any[]>([]);
 const selectedTemplateId = ref('');
 const isLoadingTemplate = ref(false);
+const docEditorRef = ref<InstanceType<typeof RichTextEditorType> | null>(null);
 const newDocModalOpen = ref(false);
 const newDocIsSaving = ref(false);
 const newDocError = ref('');
@@ -514,6 +516,71 @@ async function applyTemplate() {
   } finally {
     isLoadingTemplate.value = false;
   }
+}
+
+// ── PDF export ──────────────────────────────────────────────────────────────
+type TiptapNode = { type?: string; text?: string; content?: TiptapNode[]; attrs?: Record<string, unknown>; marks?: Array<{ type: string; attrs?: Record<string, unknown> }> };
+
+function tiptapToHtml(node: TiptapNode): string {
+  const children = (node.content ?? []).map(tiptapToHtml).join('');
+  switch (node.type) {
+    case 'doc': return children;
+    case 'paragraph': return `<p>${children || '<br>'}</p>`;
+    case 'heading': {
+      const lvl = (node.attrs?.level as number) ?? 1;
+      return `<h${lvl}>${children}</h${lvl}>`;
+    }
+    case 'text': {
+      let html = (node.text ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+      for (const mark of (node.marks ?? [])) {
+        switch (mark.type) {
+          case 'bold': html = `<strong>${html}</strong>`; break;
+          case 'italic': html = `<em>${html}</em>`; break;
+          case 'underline': html = `<u>${html}</u>`; break;
+          case 'strike': html = `<s>${html}</s>`; break;
+          case 'code': html = `<code>${html}</code>`; break;
+          case 'textStyle': if (mark.attrs?.color) html = `<span style="color:${mark.attrs.color}">${html}</span>`; break;
+        }
+      }
+      return html;
+    }
+    case 'bulletList': return `<ul>${children}</ul>`;
+    case 'orderedList': return `<ol>${children}</ol>`;
+    case 'listItem': return `<li>${children}</li>`;
+    case 'blockquote': return `<blockquote>${children}</blockquote>`;
+    case 'codeBlock': return `<pre><code>${children}</code></pre>`;
+    case 'horizontalRule': return '<hr>';
+    case 'hardBreak': return '<br>';
+    default: return children;
+  }
+}
+
+function openPrintWindow(doc: DocumentItem, contentHtml: string) {
+  const win = window.open('', '_blank', 'width=820,height=700');
+  if (!win) return;
+  win.document.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>${doc.type} — ${dossier.value?.reference ?? ''}</title>
+<style>body{font-family:Arial,sans-serif;max-width:800px;margin:40px auto;font-size:13px;color:#222}header{border-bottom:2px solid #1d4ed8;padding-bottom:12px;margin-bottom:24px}h1.doc-title{font-size:18px;margin:0 0 4px;color:#1d4ed8}.meta{font-size:11px;color:#555}.meta span{margin-right:16px}h1,h2,h3{margin-top:1rem}blockquote{border-left:3px solid #1d4ed8;padding:4px 12px;color:#555;font-style:italic}pre{background:#f5f5f5;padding:8px;border-radius:4px}code{background:#f0f0f0;padding:1px 4px;border-radius:3px;font-size:12px}@media print{body{margin:20mm}}</style>
+</head><body><header><h1 class="doc-title">${doc.type}</h1><div class="meta"><span>Dossier : ${dossier.value?.reference ?? '—'}</span><span>Auteur : ${doc.auteur ?? '—'}</span><span>Date : ${doc.dateCreation ?? '—'}</span><span>Statut : ${doc.statut ?? '—'}</span></div></header><main>${contentHtml || '<p><em>Aucun contenu</em></p>'}</main></body></html>`);
+  win.document.close();
+  win.focus();
+  win.print();
+}
+
+function exportDocumentPdfFromDrawer() {
+  if (!docDrawerDoc.value) return;
+  const html = docEditorRef.value?.getHTML() ?? tiptapToHtml(docDrawerContenu.value as TiptapNode);
+  openPrintWindow(docDrawerDoc.value, html);
+}
+
+async function exportDocumentPdfFromRow(doc: DocumentItem) {
+  let content: TiptapNode = (doc.contenuJson as TiptapNode) ?? {};
+  if (!Object.keys(content).length) {
+    try {
+      const full = await fetchDocumentById(doc.id);
+      content = (full.contenuJson as TiptapNode) ?? {};
+    } catch { /* ignore */ }
+  }
+  openPrintWindow(doc, tiptapToHtml(content));
 }
 
 async function deleteDocumentFromList(docId: number) {
@@ -1426,15 +1493,22 @@ function goBackToDossiers() {
                 <td>{{ doc.dateCreation || '—' }}</td>
                 <td><span :class="['status-pill', getStatusColorClass(doc.statut)]">{{ doc.statut }}</span></td>
                 <td class="docs-table-actions">
-                  <button
-                    class="button button-danger button-xs"
-                    type="button"
-                    aria-label="Supprimer"
-                    title="Supprimer le document"
-                    @click.stop="deleteDocumentFromList(doc.id)"
-                  >
-                    Supprimer
-                  </button>
+                  <div class="docs-table-actions-group">
+                    <button
+                      class="button button-secondary button-xs"
+                      type="button"
+                      aria-label="Exporter PDF"
+                      title="Exporter en PDF"
+                      @click.stop="exportDocumentPdfFromRow(doc)"
+                    >PDF</button>
+                    <button
+                      class="button button-danger button-xs"
+                      type="button"
+                      aria-label="Supprimer"
+                      title="Supprimer le document"
+                      @click.stop="deleteDocumentFromList(doc.id)"
+                    >Supprimer</button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -1794,13 +1868,14 @@ function goBackToDossiers() {
 
                 <p class="doc-editor-label">Contenu</p>
                 <div v-if="docDrawerIsLoading" class="action-bar-caption">Chargement du contenu...</div>
-                <RichTextEditor v-else v-model="docDrawerContenu" placeholder="Rédigez le contenu du document…" />
+                <RichTextEditor ref="docEditorRef" v-else v-model="docDrawerContenu" placeholder="Rédigez le contenu du document…" />
                 <p v-if="docDrawerError" class="autosave-error">{{ docDrawerError }}</p>
               </template>
             </div>
 
             <div class="doc-modal-footer">
               <button class="button button-secondary" type="button" @click="closeDocumentDrawer">Fermer</button>
+              <button class="button button-secondary" type="button" title="Exporter en PDF" @click="exportDocumentPdfFromDrawer">⬇ PDF</button>
               <button class="button" type="button" :disabled="docDrawerIsSaving || docDrawerIsLoading" @click="saveDocumentDrawer">
                 {{ docDrawerIsSaving ? 'Enregistrement...' : 'Enregistrer' }}
               </button>
@@ -2051,6 +2126,14 @@ function goBackToDossiers() {
 .docs-table-actions {
   padding: 0 !important;
   text-align: center;
+}
+
+.docs-table-actions-group {
+  display: flex;
+  gap: 0.25rem;
+  justify-content: center;
+  align-items: center;
+  padding: 0.25rem;
 }
 
 .button-xs {
