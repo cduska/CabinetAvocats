@@ -1621,7 +1621,7 @@ function goBackToDossiers() {
 
       <Teleport to="body">
         <div v-if="docDrawerOpen" class="doc-modal-overlay" @mousedown.self="closeDocumentDrawer" @keydown.esc="closeDocumentDrawer">
-          <div class="doc-modal" role="dialog" aria-modal="true" :aria-label="docDrawerDoc ? 'Edition: ' + docDrawerDoc.type : 'Edition du document'">
+          <dialog class="doc-modal" open :aria-label="docDrawerDoc ? 'Edition: ' + docDrawerDoc.type : 'Edition du document'">
             <div class="doc-modal-header">
               <div>
                 <p class="action-bar-title">{{ docDrawerDoc?.type ?? 'Document' }}</p>
@@ -1701,7 +1701,7 @@ function goBackToDossiers() {
                 {{ docDrawerIsSaving ? 'Enregistrement...' : 'Enregistrer' }}
               </button>
             </div>
-          </div>
+          </dialog>
         </div>
       </Teleport>
     </div>
@@ -1828,10 +1828,6 @@ function goBackToDossiers() {
 
 .instances-block-header {
   margin-bottom: 0.6rem;
-}
-
-.instances-timeline-card {
-  /* dans la grille detail-layout, pas de marge supplémentaire */
 }
 
 .documents-associes-card {
