@@ -94,6 +94,85 @@ async function getDossierByIdFromNeon(id: number): Promise<Dossier> {
   return mapNeonDossier(row);
 }
 
+async function getClientId(name: string, agenceId: number | null): Promise<number> {
+  const parts = name.trim().split(/\s+/);
+  const prenom = parts[0] ?? '';
+  const nom = parts.slice(1).join(' ') || prenom;
+
+  const nomWildcard = encodeURIComponent(`*${nom}*`);
+  const nameWildcard = encodeURIComponent(`*${name.trim()}*`);
+  const agenceFilter = agenceId === null ? '' : `&id_agence=eq.${agenceId}`;
+  const rows = await requestNeonRest<Array<{ id: number }>>(
+    `/client?select=id&or=(nom.ilike.${nomWildcard},concat_ws(' ',prenom,nom).ilike.${nameWildcard})${agenceFilter}&order=id.asc&limit=1`,
+  );
+  if (rows[0]) {
+    return rows[0].id;
+  }
+
+  // Create a new client
+  const clientBody: Record<string, unknown> = { prenom, nom };
+  if (agenceId === null) {
+    clientBody.id_agence = null;
+  } else {
+    clientBody.id_agence = agenceId;
+  }
+  const created = await requestNeonRest<Array<{ id: number }>>('/client', {
+    method: 'POST',
+    body: JSON.stringify(clientBody),
+    headers: { Prefer: 'return=representation,resolution=header-or-ignore' },
+  });
+  const newId = created[0]?.id;
+  if (!Number.isFinite(newId)) {
+    throw new TypeError(`Client introuvable ou non créé: ${name.trim()}`);
+  }
+  return newId;
+}
+
+async function getTypeDossierId(label: string): Promise<number> {
+  const rows = await requestNeonRest<Array<{ id: number }>>(`/type_dossier?select=id&libelle=eq.${encodeURIComponent(label)}&limit=1`);
+  const id = rows[0]?.id;
+  if (!Number.isFinite(id)) {
+    throw new TypeError(`Type de dossier introuvable: ${label}`);
+  }
+  return id;
+}
+
+async function getStatutDossierId(label: string): Promise<number> {
+  const rows = await requestNeonRest<Array<{ id: number }>>(`/statut_dossier?select=id&libelle=eq.${encodeURIComponent(label)}&limit=1`);
+  const id = rows[0]?.id;
+  if (!Number.isFinite(id)) {
+    throw new TypeError(`Statut de dossier introuvable: ${label}`);
+  }
+  return id;
+}
+
+async function getAgenceId(name: string): Promise<number | null> {
+  if (!name.trim()) return null;
+  const wildcard = encodeURIComponent(`*${name.trim()}*`);
+  const rows = await requestNeonRest<Array<{ id: number }>>(`/agence?select=id&or=(nom.ilike.${wildcard},ville.ilike.${wildcard})&order=id.asc&limit=1`);
+  return rows[0]?.id ?? null;
+}
+
+async function upsertFacture(dossierId: number, montant: number): Promise<void> {
+  if (!Number.isFinite(montant)) return;
+  const existing = await requestNeonRest<Array<{ id: number }>>(
+    `/facture?select=id&id_dossier=eq.${dossierId}&order=date_emission.desc.nullslast,id.desc&limit=1`,
+  );
+  if (existing[0]) {
+    await requestNeonRest(`/facture?id=eq.${existing[0].id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ montant }),
+      headers: { Prefer: 'return=minimal' },
+    });
+  } else if (montant > 0) {
+    await requestNeonRest('/facture', {
+      method: 'POST',
+      body: JSON.stringify({ id_dossier: dossierId, montant, statut: 'Brouillon' }),
+      headers: { Prefer: 'return=minimal' },
+    });
+  }
+}
+
 export async function getDossiers(filters: { q?: string; statut?: string; agence?: string } = {}) {
   if (isNeonDataApiEnabled()) {
     return getDossiersFromNeon(filters);
@@ -122,6 +201,31 @@ export async function updateDossier(id: number, payload: {
   montant: number;
   informationsSecretes?: string | null;
 }) {
+  if (isNeonDataApiEnabled()) {
+    const agenceId = await getAgenceId(payload.agence);
+    const [clientId, typeId, statutId] = await Promise.all([
+      getClientId(payload.client, agenceId),
+      getTypeDossierId(payload.type),
+      getStatutDossierId(payload.statut),
+    ]);
+
+    await requestNeonRest(`/dossier?id=eq.${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        reference: payload.reference,
+        id_client: clientId,
+        id_type_dossier: typeId,
+        id_statut_dossier: statutId,
+        date_ouverture: payload.ouverture || null,
+        date_cloture: payload.echeance || null,
+      }),
+      headers: { Prefer: 'return=minimal' },
+    });
+
+    await upsertFacture(id, payload.montant);
+    return getDossierByIdFromNeon(id);
+  }
+
   const query = toQueryString({ agence: payload.agence });
   return requestJson<Dossier>(`/api/dossiers/${id}${query}`, {
     method: 'PUT',
@@ -140,6 +244,40 @@ export async function createDossier(payload: {
   montant: number;
   informationsSecretes?: string | null;
 }) {
+  if (isNeonDataApiEnabled()) {
+    const agenceId = await getAgenceId(payload.agence);
+    const [clientId, typeId, statutId] = await Promise.all([
+      getClientId(payload.client, agenceId),
+      getTypeDossierId(payload.type),
+      getStatutDossierId(payload.statut),
+    ]);
+
+    const rows = await requestNeonRest<Array<{ id: number }>>('/dossier', {
+      method: 'POST',
+      body: JSON.stringify({
+        reference: payload.reference,
+        id_client: clientId,
+        id_type_dossier: typeId,
+        id_statut_dossier: statutId,
+        ...(agenceId === null ? {} : { id_agence: agenceId }),
+        date_ouverture: payload.ouverture || null,
+        date_cloture: payload.echeance || null,
+      }),
+      headers: { Prefer: 'return=representation,resolution=header-or-ignore' },
+    });
+
+    const newId = rows[0]?.id;
+    if (!Number.isFinite(newId)) {
+      throw new TypeError('Erreur lors de la création du dossier.');
+    }
+
+    if (Number.isFinite(payload.montant) && payload.montant > 0) {
+      await upsertFacture(newId, payload.montant);
+    }
+
+    return getDossierByIdFromNeon(newId);
+  }
+
   return requestJson<Dossier>('/api/dossiers', {
     method: 'POST',
     body: JSON.stringify(payload),
@@ -147,6 +285,10 @@ export async function createDossier(payload: {
 }
 
 export async function decryptInformationsSecretes(dossierId: number): Promise<string | null> {
+  if (isNeonDataApiEnabled()) {
+    throw new Error('Le déchiffrement des informations confidentielles nécessite le serveur backend — non disponible en mode Neon direct.');
+  }
+
   const result = await requestJson<{ value: string | null }>(`/api/dossiers/${dossierId}/decrypt`, {
     method: 'POST',
   });
