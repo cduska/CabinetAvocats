@@ -99,11 +99,10 @@ async function getClientId(name: string, agenceId: number | null): Promise<numbe
   const prenom = parts[0] ?? '';
   const nom = parts.slice(1).join(' ') || prenom;
 
-  const nomWildcard = encodeURIComponent(`*${nom}*`);
   const nameWildcard = encodeURIComponent(`*${name.trim()}*`);
   const agenceFilter = agenceId === null ? '' : `&id_agence=eq.${agenceId}`;
   const rows = await requestNeonRest<Array<{ id: number }>>(
-    `/client?select=id&or=(nom.ilike.${nomWildcard},concat_ws(' ',prenom,nom).ilike.${nameWildcard})${agenceFilter}&order=id.asc&limit=1`,
+    `/client?select=id&or=(nom.ilike.${nameWildcard},prenom.ilike.${nameWildcard})${agenceFilter}&order=id.asc&limit=1`,
   );
   if (rows[0]) {
     return rows[0].id;
