@@ -72,8 +72,10 @@ function parseInlineHtml(html) {
 function parseSegment(html) {
   const nodes = [];
   const activeMarks = [];
-  // Tokenise: tags or text
-  const regex = /<(\/?)([a-zA-Z]+)[^>]*>|([^<]+)/g;
+  // Tokenise: tags or text.
+  // No attribute capture — all handled tags (b, i, u, s, em, strong, del) are attribute-free.
+  // Omitting [^>]* removes the overlap between [a-zA-Z]+ and [^>]+ that caused super-linear backtracking (S5852).
+  const regex = /<(\/?)([a-zA-Z]+)>|([^<]+)/g;
   let m;
   while ((m = regex.exec(html)) !== null) {
     if (m[3] !== undefined) {
