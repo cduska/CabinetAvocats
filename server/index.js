@@ -2474,7 +2474,14 @@ app.post('/api/documents', async (request, response, next) => {
     const contenuJson = toJsonObject(request.body.contenuJson) ?? null;
 
     let dossierIdToInsert = null;
-    if (procedureIdToInsert === null && instanceIdToInsert === null) {
+    let procedureIdFinal = null;
+    let instanceIdFinal = null;
+
+    if (instanceIdToInsert !== null) {
+      instanceIdFinal = instanceIdToInsert;
+    } else if (procedureIdToInsert !== null) {
+      procedureIdFinal = procedureIdToInsert;
+    } else {
       let dossierId = null;
       if (dossierIdentifier) {
         const dossierResult = await query(
@@ -2538,7 +2545,7 @@ app.post('/api/documents', async (request, response, next) => {
         VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8)
         RETURNING id
       `,
-      [typeId, dossierIdToInsert, procedureIdToInsert, instanceIdToInsert, auteurId, '/documents/local', statutDocument, metadataJson],
+      [typeId, dossierIdToInsert, procedureIdFinal, instanceIdFinal, auteurId, '/documents/local', statutDocument, metadataJson],
     );
 
     const row = await getDocumentById(inserted.rows[0].id);
