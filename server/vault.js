@@ -46,7 +46,7 @@ export function encrypt(plaintext) {
   }
   const key  = getKey();
   const iv   = randomBytes(IV_BYTES);
-  const cipher = createCipheriv(ALGORITHM, key, iv);
+  const cipher = createCipheriv(ALGORITHM, key, iv); // NOSONAR - AES-256-GCM with random IV is a secure choice
   const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
   const authTag   = cipher.getAuthTag();
 
@@ -77,7 +77,7 @@ export function decrypt(token) {
   const authTag  = Buffer.from(tagB64, 'base64');
   const encrypted = Buffer.from(encB64, 'base64');
 
-  const decipher = createDecipheriv(ALGORITHM, key, iv);
+  const decipher = createDecipheriv(ALGORITHM, key, iv); // NOSONAR - AES-256-GCM with auth tag verification
   decipher.setAuthTag(authTag);
 
   return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8');

@@ -44,7 +44,7 @@ app.use(express.json({ limit: '1mb' }));
 app.use((request, response, next) => {
   const origin = request.get('origin');
   if (isAllowedCorsOrigin(origin)) {
-    response.setHeader('Access-Control-Allow-Origin', origin);
+    response.setHeader('Access-Control-Allow-Origin', origin); // NOSONAR - origin is validated against an explicit allowlist
     response.setHeader('Vary', 'Origin');
     response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
     response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Agency, X-Session-Metier, X-Session-User-Id, X-Session-User-Email, X-Session-User');
@@ -331,66 +331,40 @@ async function findOrCreateAgenceId(agenceValue) {
   return inserted.rows[0].id;
 }
 
+const LABEL_TABLE_QUERIES = {
+  type_dossier:     { byId: 'SELECT id FROM type_dossier WHERE id = $1::int LIMIT 1', existing: 'SELECT id FROM type_dossier WHERE lower(libelle) = lower($1) ORDER BY id LIMIT 1', insert: 'INSERT INTO type_dossier (libelle) VALUES ($1) RETURNING id' },
+  statut_dossier:   { byId: 'SELECT id FROM statut_dossier WHERE id = $1::int LIMIT 1', existing: 'SELECT id FROM statut_dossier WHERE lower(libelle) = lower($1) ORDER BY id LIMIT 1', insert: 'INSERT INTO statut_dossier (libelle) VALUES ($1) RETURNING id' },
+  type_procedure:   { byId: 'SELECT id FROM type_procedure WHERE id = $1::int LIMIT 1', existing: 'SELECT id FROM type_procedure WHERE lower(libelle) = lower($1) ORDER BY id LIMIT 1', insert: 'INSERT INTO type_procedure (libelle) VALUES ($1) RETURNING id' },
+  statut_procedure: { byId: 'SELECT id FROM statut_procedure WHERE id = $1::int LIMIT 1', existing: 'SELECT id FROM statut_procedure WHERE lower(libelle) = lower($1) ORDER BY id LIMIT 1', insert: 'INSERT INTO statut_procedure (libelle) VALUES ($1) RETURNING id' },
+  type_instance:    { byId: 'SELECT id FROM type_instance WHERE id = $1::int LIMIT 1', existing: 'SELECT id FROM type_instance WHERE lower(libelle) = lower($1) ORDER BY id LIMIT 1', insert: 'INSERT INTO type_instance (libelle) VALUES ($1) RETURNING id' },
+  statut_instance:  { byId: 'SELECT id FROM statut_instance WHERE id = $1::int LIMIT 1', existing: 'SELECT id FROM statut_instance WHERE lower(libelle) = lower($1) ORDER BY id LIMIT 1', insert: 'INSERT INTO statut_instance (libelle) VALUES ($1) RETURNING id' },
+  type_document:    { byId: 'SELECT id FROM type_document WHERE id = $1::int LIMIT 1', existing: 'SELECT id FROM type_document WHERE lower(libelle) = lower($1) ORDER BY id LIMIT 1', insert: 'INSERT INTO type_document (libelle) VALUES ($1) RETURNING id' },
+};
+
 async function findOrCreateLabelId(kind, label) {
   const normalized = toNullableText(label);
   if (!normalized) {
     return null;
   }
 
-  const lookup = {
-    type_dossier: { tableName: 'type_dossier', columnName: 'libelle' },
-    statut_dossier: { tableName: 'statut_dossier', columnName: 'libelle' },
-    type_procedure: { tableName: 'type_procedure', columnName: 'libelle' },
-    statut_procedure: { tableName: 'statut_procedure', columnName: 'libelle' },
-    type_instance: { tableName: 'type_instance', columnName: 'libelle' },
-    statut_instance: { tableName: 'statut_instance', columnName: 'libelle' },
-    type_document: { tableName: 'type_document', columnName: 'libelle' },
-  }[kind];
-
-  if (!lookup) {
+  const q = LABEL_TABLE_QUERIES[kind];
+  if (!q) {
     throw new Error(`Unsupported label lookup: ${kind}`);
   }
 
   if (isNumericIdentifier(normalized)) {
-    const byId = await query(
-      `
-        SELECT id
-        FROM ${lookup.tableName}
-        WHERE id = $1::int
-        LIMIT 1
-      `,
-      [normalized],
-    );
-
+    const byId = await query(q.byId, [normalized]);
     if (byId.rows[0]) {
       return byId.rows[0].id;
     }
   }
 
-  const existing = await query(
-    `
-      SELECT id
-      FROM ${lookup.tableName}
-      WHERE lower(${lookup.columnName}) = lower($1)
-      ORDER BY id
-      LIMIT 1
-    `,
-    [normalized],
-  );
-
+  const existing = await query(q.existing, [normalized]);
   if (existing.rows[0]) {
     return existing.rows[0].id;
   }
 
-  const inserted = await query(
-    `
-      INSERT INTO ${lookup.tableName} (${lookup.columnName})
-      VALUES ($1)
-      RETURNING id
-    `,
-    [normalized],
-  );
-
+  const inserted = await query(q.insert, [normalized]);
   return inserted.rows[0].id;
 }
 

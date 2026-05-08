@@ -37,7 +37,7 @@ async function getTypeProcedureId(label: string): Promise<number> {
   const rows = await requestNeonRest<Array<{ id: number }>>(`/type_procedure?select=id&libelle=eq.${encodeURIComponent(label)}&limit=1`);
   const id = rows[0]?.id;
   if (!Number.isFinite(id)) {
-    throw new Error(`Type de procedure introuvable: ${label}`);
+    throw new TypeError(`Type de procedure introuvable: ${label}`);
   }
   return id;
 }
@@ -46,7 +46,7 @@ async function getStatutProcedureId(label: string): Promise<number> {
   const rows = await requestNeonRest<Array<{ id: number }>>(`/statut_procedure?select=id&libelle=eq.${encodeURIComponent(label)}&limit=1`);
   const id = rows[0]?.id;
   if (!Number.isFinite(id)) {
-    throw new Error(`Statut de procedure introuvable: ${label}`);
+    throw new TypeError(`Statut de procedure introuvable: ${label}`);
   }
   return id;
 }
@@ -55,7 +55,7 @@ async function getTypeInstanceId(label: string): Promise<number> {
   const rows = await requestNeonRest<Array<{ id: number }>>(`/type_instance?select=id&libelle=eq.${encodeURIComponent(label)}&limit=1`);
   const id = rows[0]?.id;
   if (!Number.isFinite(id)) {
-    throw new Error(`Type d'instance introuvable: ${label}`);
+    throw new TypeError(`Type d'instance introuvable: ${label}`);
   }
   return id;
 }
@@ -64,7 +64,7 @@ async function getStatutInstanceId(label: string): Promise<number> {
   const rows = await requestNeonRest<Array<{ id: number }>>(`/statut_instance?select=id&libelle=eq.${encodeURIComponent(label)}&limit=1`);
   const id = rows[0]?.id;
   if (!Number.isFinite(id)) {
-    throw new Error(`Statut d'instance introuvable: ${label}`);
+    throw new TypeError(`Statut d'instance introuvable: ${label}`);
   }
   return id;
 }

@@ -96,7 +96,7 @@ try {
   for (const stmt of statements) {
     stmtIndex++;
     try {
-      await client.query(stmt);
+      await client.query(stmt); // NOSONAR - stmt is a parsed segment from a SQL migration file, not user-supplied input
     } catch (err) {
       const preview = stmt.replaceAll(/\s+/g, ' ').slice(0, 120);
       throw new Error(`Statement #${stmtIndex}: ${err.message}\n  SQL: ${preview}`);
