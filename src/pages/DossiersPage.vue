@@ -193,6 +193,10 @@ async function createDossier(): Promise<void> {
       ouverture: form.ouverture,
       echeance: form.echeance,
       montant: form.montant,
+      clientId: form.client,
+      typeId: form.type,
+      statutId: form.statut,
+      agenceId: form.agence,
       ...(sessionState.metier === 'Associee' && form.informationsSecretes
         ? { informationsSecretes: form.informationsSecretes }
         : {}),

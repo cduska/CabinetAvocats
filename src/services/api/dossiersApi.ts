@@ -172,6 +172,22 @@ async function upsertFacture(dossierId: number, montant: number): Promise<void> 
   }
 }
 
+type NeonIdOverrides = { clientId?: number | null; typeId?: number | null; statutId?: number | null; agenceId?: number | null };
+type NeonResolvedIds = { clientId: number | null; typeId: number | null; statutId: number | null; agenceId: number | null };
+
+async function resolveNeonIds(
+  labels: { client: string; type: string; statut: string; agence: string },
+  overrides: NeonIdOverrides,
+): Promise<NeonResolvedIds> {
+  const agenceId = overrides.agenceId === undefined ? await getAgenceId(labels.agence) : overrides.agenceId;
+  const [clientId, typeId, statutId] = await Promise.all([
+    overrides.clientId === undefined ? getClientId(labels.client, agenceId) : Promise.resolve(overrides.clientId),
+    overrides.typeId === undefined ? getTypeDossierId(labels.type) : Promise.resolve(overrides.typeId),
+    overrides.statutId === undefined ? getStatutDossierId(labels.statut) : Promise.resolve(overrides.statutId),
+  ]);
+  return { clientId, typeId, statutId, agenceId };
+}
+
 export async function getDossiers(filters: { q?: string; statut?: string; agence?: string } = {}) {
   if (isNeonDataApiEnabled()) {
     return getDossiersFromNeon(filters);
@@ -199,14 +215,14 @@ export async function updateDossier(id: number, payload: {
   echeance: string;
   montant: number;
   informationsSecretes?: string | null;
+  // Optional IDs for Neon path — avoids label-to-ID lookups when caller already has the IDs
+  clientId?: number | null;
+  typeId?: number | null;
+  statutId?: number | null;
+  agenceId?: number | null;
 }) {
   if (isNeonDataApiEnabled()) {
-    const agenceId = await getAgenceId(payload.agence);
-    const [clientId, typeId, statutId] = await Promise.all([
-      getClientId(payload.client, agenceId),
-      getTypeDossierId(payload.type),
-      getStatutDossierId(payload.statut),
-    ]);
+    const { clientId, typeId, statutId } = await resolveNeonIds(payload, payload);
 
     await requestNeonRest(`/dossier?id=eq.${id}`, {
       method: 'PATCH',
@@ -242,14 +258,14 @@ export async function createDossier(payload: {
   echeance: string;
   montant: number;
   informationsSecretes?: string | null;
+  // Optional IDs for Neon path — avoids label-to-ID lookups when caller already has the IDs
+  clientId?: number | null;
+  typeId?: number | null;
+  statutId?: number | null;
+  agenceId?: number | null;
 }) {
   if (isNeonDataApiEnabled()) {
-    const agenceId = await getAgenceId(payload.agence);
-    const [clientId, typeId, statutId] = await Promise.all([
-      getClientId(payload.client, agenceId),
-      getTypeDossierId(payload.type),
-      getStatutDossierId(payload.statut),
-    ]);
+    const { clientId, typeId, statutId, agenceId: resolvedAgenceId } = await resolveNeonIds(payload, payload);
 
     const rows = await requestNeonRest<Array<{ id: number }>>('/dossier', {
       method: 'POST',
@@ -258,7 +274,7 @@ export async function createDossier(payload: {
         id_client: clientId,
         id_type_dossier: typeId,
         id_statut_dossier: statutId,
-        ...(agenceId === null ? {} : { id_agence: agenceId }),
+        ...(resolvedAgenceId === null ? {} : { id_agence: resolvedAgenceId }),
         date_ouverture: payload.ouverture || null,
         date_cloture: payload.echeance || null,
       }),

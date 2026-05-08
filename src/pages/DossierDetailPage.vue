@@ -794,6 +794,10 @@ async function saveDossier() {
       ouverture: form.ouverture,
       echeance: form.echeance,
       montant: Number(form.montant ?? 0),
+      clientId: form.client,
+      typeId: form.type,
+      statutId: form.statut,
+      agenceId: form.agence,
       ...(isAssociee.value && secretDecrypted.value
         ? { informationsSecretes: form.informationsSecretes || null }
         : {}),
