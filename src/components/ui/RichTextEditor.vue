@@ -86,7 +86,7 @@ onMounted(async () => {
 function substituteVars(text: string): string {
   const vars = props.variables;
   if (!vars || !Object.keys(vars).length) return text;
-  return text.replaceAll(/\[([^\]]+)\]/g, (_match, key: string) => {
+  return text.replaceAll(/\[([^\]]{1,100})\]/g, (_match, key: string) => {
     const upper = key.toUpperCase();
     return vars[upper] ?? vars[key] ?? _match;
   });

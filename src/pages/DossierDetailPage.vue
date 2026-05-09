@@ -763,7 +763,7 @@ function substituteJsonVars(
 ): Record<string, unknown> {
   const result = { ...node };
   if (result.type === 'text' && typeof result.text === 'string') {
-    result.text = result.text.replaceAll(/\[([^\]]+)\]/g, (_match: string, key: string) => {
+    result.text = result.text.replaceAll(/\[([^\]]{1,100})\]/g, (_match: string, key: string) => {
       const upper = key.toUpperCase();
       return vars[upper] ?? vars[key] ?? _match;
     });
