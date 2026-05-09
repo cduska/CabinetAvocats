@@ -5,7 +5,6 @@ import DrawerPanel from '../components/ui/DrawerPanel.vue';
 import RichTextEditor from '../components/ui/RichTextEditor.vue';
 import {
   createModele,
-  generateDocument,
   getModeleById,
   getModeleVersions,
   getModeles,
@@ -26,7 +25,6 @@ const isLoading = ref(false);
 const isSaving = ref(false);
 const isPublishing = ref(false);
 const createDrawerOpen = ref(false);
-const generatedDocumentInfo = ref('');
 
 const filters = reactive({
   q: '',
@@ -40,11 +38,6 @@ const form = reactive({
   contenuJson: {} as Record<string, unknown>,
 });
 
-const generateForm = reactive({
-  scopeType: 'dossier' as 'dossier' | 'procedure' | 'instance',
-  scopeId: null as number | null,
-  variablesText: '{\n  "reference": ""\n}',
-});
 
 const columns = [
   { key: 'nomModele', label: 'Modele', sortable: true },
@@ -55,12 +48,6 @@ const columns = [
 
 const selectedModele = computed(() => rows.value.find((item) => item.id === selectedModeleId.value));
 
-const canGenerate = computed(() => {
-  return selectedModeleId.value !== null
-    && selectedVersion.value !== null
-    && generateForm.scopeId !== null
-    && Number.isFinite(Number(generateForm.scopeId));
-});
 
 function formatPublished(value: boolean): string {
   return value ? 'Oui' : 'Non';
@@ -117,7 +104,6 @@ async function loadModeleDetail(modeleId: number) {
 
 async function selectModele(row: ModeleDocumentItem) {
   selectedModeleId.value = row.id;
-  generatedDocumentInfo.value = '';
   await loadModeleDetail(row.id);
 }
 
@@ -200,33 +186,6 @@ async function publishSelectedModele() {
     error.value = caughtError instanceof Error ? caughtError.message : 'Erreur de publication.';
   } finally {
     isPublishing.value = false;
-  }
-}
-
-async function generateFromModele() {
-  if (!canGenerate.value || selectedModeleId.value === null || selectedVersion.value === null || generateForm.scopeId === null) {
-    return;
-  }
-
-  isSaving.value = true;
-  error.value = '';
-
-  try {
-    const variables = parseJson(JSON.parse(generateForm.variablesText) as Record<string, unknown>);
-    const generated = await generateDocument({
-      modeleId: selectedModeleId.value,
-      numeroVersion: selectedVersion.value,
-      scopeType: generateForm.scopeType,
-      scopeId: Number(generateForm.scopeId),
-      typeDocumentId: form.typeDocumentId ?? undefined,
-      variables,
-    });
-
-    generatedDocumentInfo.value = `Document genere #${generated.id} (${generated.type})`;
-  } catch (caughtError) {
-    error.value = caughtError instanceof Error ? caughtError.message : 'Erreur de generation du document.';
-  } finally {
-    isSaving.value = false;
   }
 }
 

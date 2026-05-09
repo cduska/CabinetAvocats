@@ -177,7 +177,7 @@ async function handleWordFile(event: Event) {
         <input
           type="color"
           class="rte-color-input"
-          :value="(editor.getAttributes('textStyle').color as string) || '#000000'"
+          :value="(editor?.getAttributes('textStyle').color as string) || '#000000'"
           @input="(e) => editor.chain().focus().setColor((e.target as HTMLInputElement).value).run()"
         />
       </label>

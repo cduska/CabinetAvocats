@@ -726,7 +726,7 @@ const dossierStatusClass = computed(() => getStatusColorClass(selectedStatutLabe
 // Variables de substitution pour les paragraphes prédéfinis
 const templateVars = computed<Record<string, string>>(() => {
   const d = dossier.value;
-  if (!d) return {};
+  if (!d) return {} as Record<string, string>;
 
   const agenceObj = agences.value.find((a) => a.id === d.agenceId);
   const ville = agenceObj?.ville ?? d.agence;
