@@ -7,6 +7,7 @@ export type AppRouteName =
   | 'dossier-detail'
   | 'procedure-detail'
   | 'audiences'
+  | 'documents'
   | 'modeles'
   | 'paragraphes'
   | 'schema'
@@ -29,6 +30,7 @@ export const routeAccessMatrix: Record<AppRouteName, readonly SessionMetier[]> =
   'dossier-detail': ['Associee', 'Collaborateur', 'Juriste', 'Assistante'],
   'procedure-detail': ['Associee', 'Collaborateur', 'Juriste'],
   audiences: ['Associee', 'Collaborateur', 'Juriste', 'Assistante'],
+  documents: ['Associee', 'Collaborateur', 'Juriste', 'Assistante'],
   modeles: ['Associee', 'Collaborateur', 'Juriste'],
   paragraphes: ['Associee', 'Collaborateur', 'Juriste'],
   schema: ['Associee', 'Collaborateur'],

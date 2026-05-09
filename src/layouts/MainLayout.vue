@@ -38,6 +38,7 @@ const navigation: NavigationItem[] = [
   { label: 'Dashboard', path: '/dashboard', icon: 'DB', routeName: 'dashboard' },
   { label: 'Clients', path: '/clients', icon: 'CL', routeName: 'clients' },
   { label: 'Dossiers', path: '/dossiers', icon: 'DS', routeName: 'dossiers' },
+  { label: 'Documents', path: '/documents', icon: 'DC', routeName: 'documents' },
   { label: 'Modeles', path: '/modeles', icon: 'MD', routeName: 'modeles' },
   { label: 'Paragraphes', path: '/paragraphes', icon: 'PG', routeName: 'paragraphes' },
   { label: 'Parametrage', path: '/parametrage', icon: 'PR', routeName: 'parametrage' },
