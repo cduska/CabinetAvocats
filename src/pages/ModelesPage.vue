@@ -202,7 +202,6 @@ onMounted(() => {
         <p class="action-bar-title">Gestion des modeles documentaires</p>
         <p class="action-bar-caption">Source: {{ dataSource }}</p>
         <p v-if="error" class="action-bar-caption autosave-error">{{ error }}</p>
-        <p v-if="generatedDocumentInfo" class="action-bar-caption">{{ generatedDocumentInfo }}</p>
       </div>
       <div class="action-bar-actions">
         <button class="button button-secondary" type="button" :disabled="isLoading" @click="loadModeles">Rafraichir</button>

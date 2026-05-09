@@ -178,7 +178,7 @@ async function handleWordFile(event: Event) {
           type="color"
           class="rte-color-input"
           :value="(editor?.getAttributes('textStyle').color as string) || '#000000'"
-          @input="(e) => editor.chain().focus().setColor((e.target as HTMLInputElement).value).run()"
+          @input="(e) => editor?.chain().focus().setColor((e.target as HTMLInputElement).value).run()"
         />
       </label>
       <button type="button" title="Réinitialiser la couleur" @click="editor.chain().focus().unsetColor().run()">↺</button>
