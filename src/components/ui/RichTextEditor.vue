@@ -1,20 +1,27 @@
 <script setup lang="ts">
-import { watch } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 import { useEditor, EditorContent } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import TextAlign from '@tiptap/extension-text-align';
 import { TextStyle, Color } from '@tiptap/extension-text-style';
+import * as mammoth from 'mammoth';
+import { getParagraphes } from '../../services/api/paragraphesApi';
+import type { ParagraphePredefini } from '../../types/domain';
 
 const props = withDefaults(
   defineProps<{
     modelValue: Record<string, unknown>;
     placeholder?: string;
     readOnly?: boolean;
+    variables?: Record<string, string>;
+    importable?: boolean;
   }>(),
   {
     placeholder: 'Rédigez le contenu…',
     readOnly: false,
+    variables: () => ({}),
+    importable: false,
   },
 );
 
@@ -61,6 +68,74 @@ watch(
 defineExpose({
   getHTML: () => editor.value?.getHTML() ?? '',
 });
+
+// ── Paragraphes prédéfinis ──
+const paragraphes = ref<ParagraphePredefini[]>([]);
+const selectedParagrapheId = ref('');
+
+onMounted(async () => {
+  if (!props.readOnly) {
+    try {
+      paragraphes.value = await getParagraphes();
+    } catch {
+      // silencieux — feature optionnelle
+    }
+  }
+});
+
+function substituteVars(text: string): string {
+  const vars = props.variables;
+  if (!vars || !Object.keys(vars).length) return text;
+  return text.replaceAll(/\[([^\]]+)\]/g, (_match, key: string) => {
+    const upper = key.toUpperCase();
+    return vars[upper] ?? vars[key] ?? _match;
+  });
+}
+
+function insertParagraphe() {
+  const id = Number(selectedParagrapheId.value);
+  if (!id || !editor.value) return;
+  const para = paragraphes.value.find((p) => p.id === id);
+  if (!para) return;
+  editor.value.chain().focus().insertContent({
+    type: 'paragraph',
+    content: [{ type: 'text', text: substituteVars(para.contenu) }],
+  }).run();
+  selectedParagrapheId.value = '';
+}
+
+// ── Import Word (.docx) ──
+const wordFileInput = ref<HTMLInputElement | null>(null);
+const isImporting = ref(false);
+const importError = ref('');
+
+function openWordFilePicker() {
+  wordFileInput.value?.click();
+}
+
+async function handleWordFile(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0];
+  if (!file || !editor.value) return;
+
+  isImporting.value = true;
+  importError.value = '';
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const result = await mammoth.convertToHtml({ arrayBuffer });
+    if (result.messages.length) {
+      const warnings = result.messages.filter((m) => m.type === 'warning');
+      if (warnings.length) importError.value = `${warnings.length} avertissement(s) lors de la conversion.`;
+    }
+    editor.value.commands.setContent(result.value);
+  } catch {
+    importError.value = 'Échec de la lecture du fichier Word.';
+  } finally {
+    isImporting.value = false;
+    // Réinitialiser pour permettre un re-import du même fichier
+    if (wordFileInput.value) wordFileInput.value.value = '';
+  }
+}
 </script>
 
 <template>
@@ -111,6 +186,34 @@ defineExpose({
       <!-- Divers -->
       <button type="button" title="Ligne horizontale" @click="editor.chain().focus().setHorizontalRule().run()">—</button>
       <button type="button" title="Effacer la mise en forme" @click="editor.chain().focus().unsetAllMarks().clearNodes().run()">✕ Style</button>
+      <!-- Import Word -->
+      <template v-if="importable">
+        <span class="rte-sep" />
+        <button
+          type="button"
+          class="rte-import-btn"
+          :disabled="isImporting"
+          :title="isImporting ? 'Import en cours…' : 'Importer un document Word (.docx)'"
+          @click="openWordFilePicker"
+        >{{ isImporting ? '⏳ Import…' : '📄 Importer Word' }}</button>
+        <input ref="wordFileInput" type="file" accept=".docx" class="rte-file-input" @change="handleWordFile" />
+        <span v-if="importError" class="rte-import-error" :title="importError">⚠</span>
+      </template>
+      <!-- Paragraphes prédéfinis -->
+      <template v-if="paragraphes.length > 0">
+        <span class="rte-sep" />
+        <select
+          v-model="selectedParagrapheId"
+          class="rte-para-select"
+          title="Insérer un paragraphe prédéfini"
+          @change="insertParagraphe"
+        >
+          <option value="">¶ Paragraphe…</option>
+          <option v-for="p in paragraphes" :key="p.id" :value="String(p.id)">
+            {{ p.titre ? `${p.titre}${p.categorie ? ' · ' + p.categorie : ''}` : (p.contenu.length > 60 ? p.contenu.slice(0, 60) + '…' : p.contenu) }}
+          </option>
+        </select>
+      </template>
     </div>
     <EditorContent class="rte-content" :editor="editor" />
   </div>
@@ -216,6 +319,22 @@ defineExpose({
   margin: 0 0.25rem;
 }
 
+.rte-para-select {
+  height: 1.75rem;
+  padding: 0 0.4rem;
+  border: 1px solid var(--border-color, #d0d5dd);
+  border-radius: 4px;
+  background: var(--surface-color, #fff);
+  color: var(--text-color, #344054);
+  font-size: 0.82rem;
+  cursor: pointer;
+  max-width: 180px;
+}
+
+.rte-para-select:hover {
+  background: var(--border-color, #e4e7ec);
+}
+
 /* ── Content area ── */
 .rte-content {
   flex: 1;
@@ -248,5 +367,37 @@ defineExpose({
   color: var(--text-muted-color, #9ca3af);
   pointer-events: none;
   height: 0;
+}
+
+.rte-import-btn {
+  font-size: 0.78rem;
+  white-space: nowrap;
+  height: 1.75rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--border-color, #d0d5dd);
+  border-radius: 4px;
+  background: var(--surface-color, #fff);
+  color: var(--text-color, #344054);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.rte-import-btn:hover:not(:disabled) {
+  background: var(--border-color, #e4e7ec);
+}
+
+.rte-import-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.rte-file-input {
+  display: none;
+}
+
+.rte-import-error {
+  font-size: 1rem;
+  cursor: help;
+  color: #b45309;
 }
 </style>

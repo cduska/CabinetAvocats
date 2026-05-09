@@ -8,7 +8,7 @@ export type AppRouteName =
   | 'procedure-detail'
   | 'audiences'
   | 'modeles'
-  | 'documents'
+  | 'paragraphes'
   | 'schema'
   | 'parametrage'
   | 'collaborateurs';
@@ -20,7 +20,6 @@ export type AppAction =
   | 'clients:edit'
   | 'clients:delete'
   | 'dossiers:create'
-  | 'documents:create'
   | 'procedures:plan';
 
 export const routeAccessMatrix: Record<AppRouteName, readonly SessionMetier[]> = {
@@ -31,7 +30,7 @@ export const routeAccessMatrix: Record<AppRouteName, readonly SessionMetier[]> =
   'procedure-detail': ['Associee', 'Collaborateur', 'Juriste'],
   audiences: ['Associee', 'Collaborateur', 'Juriste', 'Assistante'],
   modeles: ['Associee', 'Collaborateur', 'Juriste'],
-  documents: ['Associee', 'Collaborateur', 'Juriste', 'Assistante'],
+  paragraphes: ['Associee', 'Collaborateur', 'Juriste'],
   schema: ['Associee', 'Collaborateur'],
   parametrage: ['Associee'],
   collaborateurs: ['Associee'],
@@ -44,11 +43,10 @@ const actionAccessMatrix: Record<AppAction, readonly SessionMetier[]> = {
   'clients:edit': ['Associee', 'Collaborateur', 'Assistante'],
   'clients:delete': ['Associee'],
   'dossiers:create': ['Associee', 'Collaborateur', 'Juriste'],
-  'documents:create': ['Associee', 'Collaborateur', 'Juriste'],
   'procedures:plan': ['Associee', 'Collaborateur', 'Juriste'],
 };
 
-const routePriority: AppRouteName[] = ['dashboard', 'clients', 'dossiers', 'audiences', 'modeles', 'documents', 'schema'];
+const routePriority: AppRouteName[] = ['dashboard', 'clients', 'dossiers', 'audiences', 'modeles', 'paragraphes', 'schema'];
 
 export function isRouteName(value: unknown): value is AppRouteName {
   return typeof value === 'string' && value in routeAccessMatrix;

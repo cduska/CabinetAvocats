@@ -223,3 +223,12 @@ export interface RefItem {
   id: number;
   libelle: string;
 }
+
+export interface ParagraphePredefini {
+  id: number;
+  idModele: number | null;
+  ordre: number | null;
+  titre: string | null;
+  categorie: string | null;
+  contenu: string;
+}

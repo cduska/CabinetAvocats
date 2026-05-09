@@ -81,7 +81,7 @@ const unresolvedProcedureStatut = ref('');
 const unresolvedProcedureType = ref('');
 
 // Session & secret
-const { state: sessionState } = useSession();
+const { state: sessionState, currentUser } = useSession();
 const isAssociee = computed(() => sessionState.metier === 'Associee');
 const secretDecrypted = ref(false);
 const secretLoading = ref(false);
@@ -444,7 +444,10 @@ watch(() => newDocForm.modeleId, async (modeleId) => {
   try {
     const modele = await getModeleById(Number(modeleId));
     if (modele?.contenuJson) {
-      newDocContenu.value = { ...modele.contenuJson };
+      newDocContenu.value = substituteJsonVars(
+        { ...modele.contenuJson } as Record<string, unknown>,
+        templateVars.value,
+      );
     }
   } catch {
     // silent
@@ -508,7 +511,10 @@ async function applyTemplate() {
   try {
     const modele = await getModeleById(Number(selectedTemplateId.value));
     if (modele?.contenuJson) {
-      docDrawerContenu.value = { ...modele.contenuJson };
+      docDrawerContenu.value = substituteJsonVars(
+        { ...modele.contenuJson } as Record<string, unknown>,
+        templateVars.value,
+      );
     }
     selectedTemplateId.value = '';
   } catch (error) {
@@ -716,6 +722,59 @@ const selectedStatutLabel = computed(() => {
 });
 
 const dossierStatusClass = computed(() => getStatusColorClass(selectedStatutLabel.value));
+
+// Variables de substitution pour les paragraphes prédéfinis
+const templateVars = computed<Record<string, string>>(() => {
+  const d = dossier.value;
+  if (!d) return {};
+
+  const agenceObj = agences.value.find((a) => a.id === d.agenceId);
+  const ville = agenceObj?.ville ?? d.agence;
+
+  const user = currentUser.value;
+  const nomAvocat = user ? `${user.firstName} ${user.lastName}`.trim() : '';
+
+  const today = new Date().toLocaleDateString('fr-FR');
+  const annee = new Date().getFullYear().toString();
+
+  const montantStr = Number(d.montant ?? 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 });
+
+  return {
+    'NOM CLIENT': d.client,
+    'NOM SOCIÉTÉ': d.client,
+    'NOM DOSSIER': d.reference,
+    'RÉFÉRENCE DOSSIER': d.reference,
+    'VILLE': ville,
+    'NOM AVOCAT': nomAvocat,
+    'DATE OUVERTURE': d.ouverture ? new Date(d.ouverture).toLocaleDateString('fr-FR') : '',
+    'DATE ÉCHÉANCE': d.echeance ? new Date(d.echeance).toLocaleDateString('fr-FR') : '',
+    'DATE CLOTURE': d.echeance ? new Date(d.echeance).toLocaleDateString('fr-FR') : '',
+    'MONTANT': montantStr,
+    'DATE': today,
+    'ANNÉE': annee,
+    'ANNÉE EN COURS': annee,
+  };
+});
+
+/** Parcourt récursivement un nœud TipTap et substitue les [LIBELLÉ] auto-remplis. */
+function substituteJsonVars(
+  node: Record<string, unknown>,
+  vars: Record<string, string>,
+): Record<string, unknown> {
+  const result = { ...node };
+  if (result.type === 'text' && typeof result.text === 'string') {
+    result.text = result.text.replaceAll(/\[([^\]]+)\]/g, (_match: string, key: string) => {
+      const upper = key.toUpperCase();
+      return vars[upper] ?? vars[key] ?? _match;
+    });
+  }
+  if (Array.isArray(result.content)) {
+    result.content = (result.content as Record<string, unknown>[]).map((child) =>
+      substituteJsonVars(child, vars),
+    );
+  }
+  return result;
+}
 
 const selectedClientLabel = computed(() => {
   if (form.client === null) {
@@ -1868,7 +1927,7 @@ function goBackToDossiers() {
 
                 <p class="doc-editor-label">Contenu</p>
                 <div v-if="docDrawerIsLoading" class="action-bar-caption">Chargement du contenu...</div>
-                <RichTextEditor ref="docEditorRef" v-else v-model="docDrawerContenu" placeholder="Rédigez le contenu du document…" />
+                <RichTextEditor ref="docEditorRef" v-else v-model="docDrawerContenu" :variables="templateVars" placeholder="Rédigez le contenu du document…" />
                 <p v-if="docDrawerError" class="autosave-error">{{ docDrawerError }}</p>
               </template>
             </div>
@@ -1898,7 +1957,7 @@ function goBackToDossiers() {
             <div class="doc-modal-body">
               <div class="new-doc-attrs-grid">
                 <label>
-                  Type de document <span class="required-star">*</span>
+                  <span>Type de document <span class="required-star">*</span></span>
                   <select v-model="newDocForm.type" class="input" required>
                     <option value="" disabled>Choisir un type</option>
                     <option v-for="t in documentTypeOptions" :key="t.id" :value="t.libelle">{{ t.libelle }}</option>
@@ -1947,7 +2006,7 @@ function goBackToDossiers() {
               </div>
 
               <p class="doc-editor-label">Contenu</p>
-              <RichTextEditor v-model="newDocContenu" placeholder="Rédigez le contenu du document…" />
+              <RichTextEditor v-model="newDocContenu" :variables="templateVars" placeholder="Rédigez le contenu du document…" />
               <p v-if="newDocError" class="autosave-error new-doc-error">{{ newDocError }}</p>
             </div>
 
@@ -2752,6 +2811,7 @@ function goBackToDossiers() {
 .new-doc-attrs-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
   gap: 0.7rem;
   margin-bottom: 1rem;
 }

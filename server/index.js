@@ -3900,6 +3900,110 @@ app.delete('/api/affectation-procedure/:id', async (request, response, next) => 
   }
 });
 
+// =========================================================
+// PARAGRAPHES PREDÉFINIS (bibliothèque autonome)
+// =========================================================
+
+app.get('/api/paragraphes', async (request, response, next) => {
+  try {
+    const modeleId = toNullableText(request.query.modeleId);
+    const categorie = toNullableText(request.query.categorie);
+    const conditions = [];
+    const params = [];
+    if (modeleId !== null) {
+      params.push(Number(modeleId));
+      conditions.push(`id_modele = $${params.length}`);
+    }
+    if (categorie !== null) {
+      params.push(categorie);
+      conditions.push(`categorie = $${params.length}`);
+    }
+    const where = conditions.length > 0 ? ` WHERE ${conditions.join(' AND ')}` : '';
+    const sql = `SELECT id, id_modele, ordre, titre, categorie, contenu FROM paragraphe_predefini${where} ORDER BY COALESCE(ordre, 0), id`;
+    const result = await query(sql, params);
+    response.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/paragraphes/categories', async (request, response, next) => {
+  try {
+    const result = await query(
+      `SELECT DISTINCT categorie FROM paragraphe_predefini WHERE categorie IS NOT NULL ORDER BY categorie`,
+    );
+    response.json(result.rows.map((r) => r.categorie));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/paragraphes', async (request, response, next) => {
+  try {
+    const contenu = toNullableText(request.body.contenu);
+    if (!contenu) {
+      response.status(400).json({ message: 'Le contenu est obligatoire.' });
+      return;
+    }
+    const titre = toNullableText(request.body.titre);
+    const categorie = toNullableText(request.body.categorie);
+    const modeleId = request.body.modeleId != null ? Number(request.body.modeleId) : null;
+    const ordre = request.body.ordre != null ? Number(request.body.ordre) : null;
+    const result = await query(
+      `INSERT INTO paragraphe_predefini (contenu, titre, categorie, id_modele, ordre)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, id_modele, ordre, titre, categorie, contenu`,
+      [contenu, titre, categorie, modeleId, ordre],
+    );
+    response.status(201).json(result.rows[0]);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/paragraphes/:id', async (request, response, next) => {
+  try {
+    const id = Number(request.params.id);
+    const contenu = toNullableText(request.body.contenu);
+    if (!contenu) {
+      response.status(400).json({ message: 'Le contenu est obligatoire.' });
+      return;
+    }
+    const titre = toNullableText(request.body.titre);
+    const categorie = toNullableText(request.body.categorie);
+    const modeleId = request.body.modeleId != null ? Number(request.body.modeleId) : null;
+    const ordre = request.body.ordre != null ? Number(request.body.ordre) : null;
+    const result = await query(
+      `UPDATE paragraphe_predefini
+         SET contenu = $1, titre = $2, categorie = $3, id_modele = $4, ordre = $5
+       WHERE id = $6
+       RETURNING id, id_modele, ordre, titre, categorie, contenu`,
+      [contenu, titre, categorie, modeleId, ordre, id],
+    );
+    if (result.rows.length === 0) {
+      response.status(404).json({ message: 'Paragraphe introuvable.' });
+      return;
+    }
+    response.json(result.rows[0]);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete('/api/paragraphes/:id', async (request, response, next) => {
+  try {
+    const id = Number(request.params.id);
+    const result = await query(`DELETE FROM paragraphe_predefini WHERE id = $1 RETURNING id`, [id]);
+    if (result.rows.length === 0) {
+      response.status(404).json({ message: 'Paragraphe introuvable.' });
+      return;
+    }
+    response.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.use(express.static(distPath));
 app.get(/^(?!\/api(?:\/|$)).*/, (request, response) => {
   response.sendFile(path.join(distPath, 'index.html'));

@@ -298,7 +298,7 @@ onMounted(() => {
 
         <div class="label-block">
           <span>Contenu</span>
-          <RichTextEditor v-model="form.contenuJson" />
+          <RichTextEditor v-model="form.contenuJson" importable />
         </div>
       </form>
 
@@ -321,30 +321,6 @@ onMounted(() => {
         </select>
       </div>
 
-      <div class="version-block">
-        <p class="action-bar-title">Generation de document</p>
-        <form class="form-grid" @submit.prevent="generateFromModele">
-          <label>
-            Scope
-            <select v-model="generateForm.scopeType" class="input">
-              <option value="dossier">Dossier</option>
-              <option value="procedure">Procedure</option>
-              <option value="instance">Instance</option>
-            </select>
-          </label>
-          <label>
-            ID scope
-            <input v-model.number="generateForm.scopeId" class="input" type="number" min="1" />
-          </label>
-          <label>
-            Variables JSON
-            <textarea v-model="generateForm.variablesText" class="input json-editor" rows="8" />
-          </label>
-        </form>
-        <button class="button" type="button" :disabled="!canGenerate || isSaving" @click="generateFromModele">
-          {{ isSaving ? 'Generation...' : 'Generer document' }}
-        </button>
-      </div>
     </div>
 
     <DrawerPanel
@@ -371,7 +347,7 @@ onMounted(() => {
         </label>
         <div class="label-block">
           <span>Contenu</span>
-          <RichTextEditor v-model="form.contenuJson" />
+          <RichTextEditor v-model="form.contenuJson" importable />
         </div>
       </form>
 

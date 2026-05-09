@@ -3,8 +3,8 @@ import MainLayout from '../layouts/MainLayout.vue';
 import DashboardPage from '../pages/DashboardPage.vue';
 import ClientsPage from '../pages/ClientsPage.vue';
 import DossiersPage from '../pages/DossiersPage.vue';
-import DocumentsPage from '../pages/DocumentsPage.vue';
 import ModelesPage from '../pages/ModelesPage.vue';
+import ParagraphesPage from '../pages/ParagraphesPage.vue';
 import AudiencesPage from '../pages/AudiencesPage.vue';
 import SchemaPage from '../pages/SchemaPage.vue';
 import ParametragePage from '../pages/ParametragePage.vue';
@@ -76,21 +76,21 @@ const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: '/paragraphes',
+        name: 'paragraphes',
+        component: ParagraphesPage,
+        meta: {
+          title: 'Paragraphes',
+          allowedMetiers: routeAccessMatrix.paragraphes,
+        },
+      },
+      {
         path: '/procedures/:id',
         name: 'procedure-detail',
         component: () => import('../pages/ProcedureDetailPage.vue'),
         meta: {
           title: 'Detail Procedure',
           allowedMetiers: routeAccessMatrix['procedure-detail'],
-        },
-      },
-      {
-        path: '/documents',
-        name: 'documents',
-        component: DocumentsPage,
-        meta: {
-          title: 'Documents',
-          allowedMetiers: routeAccessMatrix.documents,
         },
       },
       {
