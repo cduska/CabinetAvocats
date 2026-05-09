@@ -4,7 +4,6 @@ import DashboardPage from '../pages/DashboardPage.vue';
 import ClientsPage from '../pages/ClientsPage.vue';
 import DossiersPage from '../pages/DossiersPage.vue';
 import ModelesPage from '../pages/ModelesPage.vue';
-import DocumentsPage from '../pages/DocumentsPage.vue';
 import ParagraphesPage from '../pages/ParagraphesPage.vue';
 import AudiencesPage from '../pages/AudiencesPage.vue';
 import SchemaPage from '../pages/SchemaPage.vue';
@@ -65,15 +64,6 @@ const routes: RouteRecordRaw[] = [
         meta: {
           title: 'Audiences',
           allowedMetiers: routeAccessMatrix.audiences,
-        },
-      },
-      {
-        path: '/documents',
-        name: 'documents',
-        component: DocumentsPage,
-        meta: {
-          title: 'Documents',
-          allowedMetiers: routeAccessMatrix.documents,
         },
       },
       {
