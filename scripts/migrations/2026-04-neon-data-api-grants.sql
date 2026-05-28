@@ -34,6 +34,7 @@ GRANT INSERT, UPDATE, DELETE ON TABLE
   instance_juridique, type_instance, statut_instance,
   document, type_document,
   modele_document, modele_document_version,
+  paragraphe_predefini,
   collaborateur, metier, role_affectation,
   affectation_dossier, affectation_procedure,
   audience, historique_dossier, historique_procedure, historique_instance
