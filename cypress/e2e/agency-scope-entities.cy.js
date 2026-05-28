@@ -40,13 +40,19 @@ describe('Restriction agence collaborateur - dossiers et documents', () => {
       delete req.headers['if-none-match'];
       req.continue();
     }).as('getDocuments');
-    cy.get('[data-cy="nav-documents"]').click();
-    cy.get('[data-cy="documents-page"]').should('be.visible');
+
+    // Navigate to dossiers to fetch scoped dossier list
+    cy.get('[data-cy="nav-dossiers"]').click();
+    cy.get('[data-cy="dossiers-page"]').should('be.visible');
 
     cy.wait('@getScopedDossiers').then(({ response }) => {
       expect(response?.statusCode).to.eq(200);
       const dossiers = Array.isArray(response?.body) ? response.body : [];
       const allowedRefs = new Set(dossiers.map((dossier) => String(dossier.reference || '').trim()).filter(Boolean));
+
+      // Navigate to dashboard which fetches all documents
+      cy.get('[data-cy="nav-dashboard"]').click();
+      cy.get('[data-cy="dashboard-page"]').should('be.visible');
 
       cy.wait('@getDocuments').then(({ response: documentsResponse }) => {
         expect(documentsResponse?.statusCode).to.eq(200);
