@@ -74,7 +74,7 @@ async function getDossiersFromNeon(filters: { q?: string; statut?: string; agenc
     const seen = new Set<number>();
     return procRows
       .map((r) => r.dossier)
-      .filter((d): d is NeonDossierRow => Boolean(d) && !seen.has(d.id) && seen.add(d.id) !== undefined)
+      .filter((d): d is NeonDossierRow => d != null && !seen.has(d.id) && seen.add(d.id) !== undefined)
       .map(mapNeonDossier);
   }
 
@@ -92,7 +92,7 @@ async function getDossiersFromNeon(filters: { q?: string; statut?: string; agenc
     const seen = new Set<number>();
     return audRows
       .map((r) => r.instance_juridique?.procedure?.dossier)
-      .filter((d): d is NeonDossierRow => Boolean(d) && !seen.has(d.id) && seen.add(d.id) !== undefined)
+      .filter((d): d is NeonDossierRow => d != null && !seen.has(d.id) && seen.add(d.id) !== undefined)
       .map(mapNeonDossier);
   }
 
@@ -108,7 +108,7 @@ async function getDossiersFromNeon(filters: { q?: string; statut?: string; agenc
     const seen = new Set<number>();
     return docRows
       .map((r) => r.dossier)
-      .filter((d): d is NeonDossierRow => Boolean(d) && !seen.has(d.id) && seen.add(d.id) !== undefined)
+      .filter((d): d is NeonDossierRow => d != null && !seen.has(d.id) && seen.add(d.id) !== undefined)
       .map(mapNeonDossier);
   }
 
