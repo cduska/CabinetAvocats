@@ -152,13 +152,13 @@ function openMetricResults(metric: DashboardMetric) {
       router.push({ name: 'dossiers', query: { preset: 'active' } }).catch(() => undefined);
       return;
     case 'delayed-procedures':
-      router.push({ name: 'procedures', query: { preset: 'delayed' } }).catch(() => undefined);
+      router.push({ name: 'dossiers', query: { preset: 'delayed-procedures' } }).catch(() => undefined);
       return;
     case 'upcoming-hearings':
-      router.push({ name: 'audiences', query: { preset: 'upcoming7d' } }).catch(() => undefined);
+      router.push({ name: 'dossiers', query: { preset: 'upcoming-hearings' } }).catch(() => undefined);
       return;
     case 'pending-documents':
-      router.push({ name: 'documents', query: { preset: 'pending-validation' } }).catch(() => undefined);
+      router.push({ name: 'dossiers', query: { preset: 'pending-documents' } }).catch(() => undefined);
       return;
     default:
       break;
@@ -167,11 +167,11 @@ function openMetricResults(metric: DashboardMetric) {
   if (metric.label === 'Dossiers actifs') {
     router.push({ name: 'dossiers', query: { preset: 'active' } }).catch(() => undefined);
   } else if (metric.label === 'Procedures en retard' || metric.label === 'Procedures en cours') {
-    router.push({ name: 'procedures', query: { preset: 'delayed' } }).catch(() => undefined);
+    router.push({ name: 'dossiers', query: { preset: 'delayed-procedures' } }).catch(() => undefined);
   } else if (metric.label === 'Audiences sous 7 jours') {
-    router.push({ name: 'audiences', query: { preset: 'upcoming7d' } }).catch(() => undefined);
+    router.push({ name: 'dossiers', query: { preset: 'upcoming-hearings' } }).catch(() => undefined);
   } else if (metric.label === 'Documents a valider') {
-    router.push({ name: 'documents', query: { preset: 'pending-validation' } }).catch(() => undefined);
+    router.push({ name: 'dossiers', query: { preset: 'pending-documents' } }).catch(() => undefined);
   }
 }
 

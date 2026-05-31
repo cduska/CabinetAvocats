@@ -66,7 +66,16 @@ const allowedCreateAgences = computed(() => {
 
 const isAgenceLockedForCreate = computed(() => sessionState.metier === 'Collaborateur' && allowedCreateAgences.value.length <= 1);
 
-const isActivePreset = computed(() => String(route.query.preset ?? '').toLowerCase() === 'active');
+const currentPreset = computed(() => String(route.query.preset ?? '').toLowerCase());
+const isActivePreset = computed(() => currentPreset.value === 'active');
+
+const presetLabels: Record<string, string> = {
+  'active': 'Dossiers actifs, classes par echeance.',
+  'delayed-procedures': 'Dossiers avec des procedures ouvertes depuis plus de 14 jours.',
+  'upcoming-hearings': 'Dossiers avec des audiences prevues dans les 7 prochains jours.',
+  'pending-documents': 'Dossiers avec des documents recents a traiter.',
+};
+const presetLabel = computed(() => presetLabels[currentPreset.value] ?? '');
 
 function normalizeText(value: unknown): string {
   return String(value ?? '')
@@ -109,7 +118,8 @@ async function loadReferences() {
 async function loadDossiersFromApi(): Promise<void> {
   try {
     await loadReferences();
-    const remoteRows = await getDossiers();
+    const preset = currentPreset.value || undefined;
+    const remoteRows = await getDossiers({ preset });
     rows.value = remoteRows;
     dataSource.value = 'PostgreSQL local';
   } catch {
@@ -119,7 +129,7 @@ async function loadDossiersFromApi(): Promise<void> {
 }
 
 watch(
-  () => [sessionState.agencyId, sessionState.metier, sessionState.userId],
+  () => [sessionState.agencyId, sessionState.metier, sessionState.userId, route.query.preset],
   () => {
     void loadDossiersFromApi();
   },
@@ -218,7 +228,7 @@ async function createDossier(): Promise<void> {
       <div>
         <p class="action-bar-title">Gestion des dossiers</p>
         <p class="action-bar-caption">Source: {{ dataSource }}</p>
-        <p v-if="isActivePreset" class="action-bar-caption">Vue pre-triee: dossiers actifs, classes par echeance.</p>
+        <p v-if="presetLabel" class="action-bar-caption">{{ presetLabel }}</p>
         <p v-if="!canCreateDossier" class="action-bar-caption">Mode lecture seule sur la creation de dossier.</p>
       </div>
       <div class="action-bar-actions">

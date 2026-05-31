@@ -1562,15 +1562,33 @@ app.get('/api/dossiers', async (request, response, next) => {
     const statutFilter = toNullableText(request.query.statut);
     const agenceFilter = await resolveAgenceFilter(request.query.agence, sessionContext);
     const collaborateurScope = await resolveCollaborateurScope(sessionContext);
+    const preset = toNullableText(request.query.preset);
 
     if (collaborateurScope.restrictToCollaborateur && collaborateurScope.collaborateurId === null) {
       response.json([]);
       return;
     }
 
+    // Build an optional extra JOIN condition depending on the preset.
+    let presetJoin = '';
+    let presetWhere = '';
+    if (preset === 'delayed-procedures') {
+      presetJoin = `INNER JOIN "procedure" pset ON pset.id_dossier = d.id`;
+      presetWhere = `AND pset.date_fin IS NULL AND pset.date_debut IS NOT NULL AND pset.date_debut < CURRENT_DATE - INTERVAL '14 days'`;
+    } else if (preset === 'upcoming-hearings') {
+      presetJoin = `INNER JOIN "procedure" pset ON pset.id_dossier = d.id
+        INNER JOIN instance_juridique ijset ON ijset.id_procedure = pset.id
+        INNER JOIN audience audset ON audset.id_instance = ijset.id`;
+      presetWhere = `AND audset.date_audience BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'`;
+    } else if (preset === 'pending-documents') {
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      presetJoin = `INNER JOIN document docset ON docset.id_dossier = d.id`;
+      presetWhere = `AND (docset.date_creation IS NULL OR docset.date_creation >= '${thirtyDaysAgo}')`;
+    }
+
     const result = await query(
       `
-        SELECT
+        SELECT DISTINCT
           d.id,
           COALESCE(d.reference, '') AS reference,
           d.id_client AS "clientId",
@@ -1596,6 +1614,7 @@ app.get('/api/dossiers', async (request, response, next) => {
           ORDER BY f.date_emission DESC NULLS LAST, f.id DESC
           LIMIT 1
         ) AS latest_facture ON true
+        ${presetJoin}
         WHERE ($1::text IS NULL
           OR d.reference ILIKE $1
           OR c.nom ILIKE $1
@@ -1612,6 +1631,7 @@ app.get('/api/dossiers', async (request, response, next) => {
                 AND ad.id_collaborateur = $4
                 AND (ad.date_fin IS NULL OR ad.date_fin >= CURRENT_DATE)
             ))
+          ${presetWhere}
         ORDER BY d.id DESC
       `,
       [searchPattern, statutFilter, agenceFilter, collaborateurScope.collaborateurId],
@@ -2451,6 +2471,74 @@ app.get('/api/documents', async (request, response, next) => {
   }
 });
 
+/**
+ * Resolve the parent entity for a new document.
+ * Priority: instance > procedure > dossier (looked up by reference or agency scope).
+ * Returns { instanceIdFinal, procedureIdFinal, dossierIdToInsert } where exactly one is non-null,
+ * or all null when no dossier could be found.
+ */
+async function resolveDocumentParentIds(instanceIdToInsert, procedureIdToInsert, dossierIdentifier, agenceFilter, collaborateurScope) {
+  if (instanceIdToInsert !== null) {
+    return { instanceIdFinal: instanceIdToInsert, procedureIdFinal: null, dossierIdToInsert: null };
+  }
+
+  if (procedureIdToInsert !== null) {
+    return { instanceIdFinal: null, procedureIdFinal: procedureIdToInsert, dossierIdToInsert: null };
+  }
+
+  let dossierId = null;
+
+  if (dossierIdentifier) {
+    const dossierResult = await query(
+      `
+        SELECT id
+        FROM dossier
+        WHERE id::text = $1
+           OR reference = $1
+        ORDER BY id DESC
+        LIMIT 1
+      `,
+      [dossierIdentifier],
+    );
+    dossierId = dossierResult.rows[0]?.id ?? null;
+  }
+
+  if (dossierId === null) {
+    const fallbackDossier = await query(
+      `
+        SELECT d.id
+        FROM dossier d
+        LEFT JOIN client c ON c.id = d.id_client
+        LEFT JOIN agence a ON a.id = d.id_agence
+        WHERE ($1::text IS NULL OR a.id::text = $1 OR lower(a.nom) = lower($1) OR lower(a.ville) = lower($1))
+          AND ($2::int IS NULL
+            OR c.id_collaborateur_responsable = $2
+            OR EXISTS (
+              SELECT 1
+              FROM affectation_dossier ad
+              WHERE ad.id_dossier = d.id
+                AND ad.id_collaborateur = $2
+                AND (ad.date_fin IS NULL OR ad.date_fin >= CURRENT_DATE)
+            )
+            OR EXISTS (
+              SELECT 1
+              FROM affectation_procedure ap
+              INNER JOIN "procedure" p ON p.id = ap.id_procedure
+              WHERE p.id_dossier = d.id
+                AND ap.id_collaborateur = $2
+                AND (ap.date_fin IS NULL OR ap.date_fin >= CURRENT_DATE)
+            ))
+        ORDER BY d.id DESC
+        LIMIT 1
+      `,
+      [agenceFilter, collaborateurScope.collaborateurId],
+    );
+    dossierId = fallbackDossier.rows[0]?.id ?? null;
+  }
+
+  return { instanceIdFinal: null, procedureIdFinal: null, dossierIdToInsert: dossierId };
+}
+
 app.post('/api/documents', async (request, response, next) => {
   try {
     const sessionContext = getSessionContext(request);
@@ -2473,69 +2561,17 @@ app.post('/api/documents', async (request, response, next) => {
     const instanceIdToInsert = bodyInstanceId && isNumericIdentifier(bodyInstanceId) ? Number(bodyInstanceId) : null;
     const contenuJson = toJsonObject(request.body.contenuJson) ?? null;
 
-    let dossierIdToInsert = null;
-    let procedureIdFinal = null;
-    let instanceIdFinal = null;
+    const { instanceIdFinal, procedureIdFinal, dossierIdToInsert } = await resolveDocumentParentIds(
+      instanceIdToInsert,
+      procedureIdToInsert,
+      dossierIdentifier,
+      agenceFilter,
+      collaborateurScope,
+    );
 
-    if (instanceIdToInsert !== null) {
-      instanceIdFinal = instanceIdToInsert;
-    } else if (procedureIdToInsert !== null) {
-      procedureIdFinal = procedureIdToInsert;
-    } else {
-      let dossierId = null;
-      if (dossierIdentifier) {
-        const dossierResult = await query(
-          `
-            SELECT id
-            FROM dossier
-            WHERE id::text = $1
-               OR reference = $1
-            ORDER BY id DESC
-            LIMIT 1
-          `,
-          [dossierIdentifier],
-        );
-        dossierId = dossierResult.rows[0]?.id ?? null;
-      }
-
-      if (dossierId === null) {
-        const fallbackDossier = await query(
-          `
-            SELECT d.id
-            FROM dossier d
-            LEFT JOIN client c ON c.id = d.id_client
-            LEFT JOIN agence a ON a.id = d.id_agence
-            WHERE ($1::text IS NULL OR a.id::text = $1 OR lower(a.nom) = lower($1) OR lower(a.ville) = lower($1))
-              AND ($2::int IS NULL
-                OR c.id_collaborateur_responsable = $2
-                OR EXISTS (
-                  SELECT 1
-                  FROM affectation_dossier ad
-                  WHERE ad.id_dossier = d.id
-                    AND ad.id_collaborateur = $2
-                    AND (ad.date_fin IS NULL OR ad.date_fin >= CURRENT_DATE)
-                )
-                OR EXISTS (
-                  SELECT 1
-                  FROM affectation_procedure ap
-                  INNER JOIN "procedure" p ON p.id = ap.id_procedure
-                  WHERE p.id_dossier = d.id
-                    AND ap.id_collaborateur = $2
-                    AND (ap.date_fin IS NULL OR ap.date_fin >= CURRENT_DATE)
-                ))
-            ORDER BY d.id DESC
-            LIMIT 1
-          `,
-          [agenceFilter, collaborateurScope.collaborateurId],
-        );
-        dossierId = fallbackDossier.rows[0]?.id ?? null;
-      }
-
-      if (dossierId === null) {
-        response.status(400).json({ message: 'Aucun dossier disponible pour creer un document.' });
-        return;
-      }
-      dossierIdToInsert = dossierId;
+    if (instanceIdFinal === null && procedureIdFinal === null && dossierIdToInsert === null) {
+      response.status(400).json({ message: 'Aucun dossier disponible pour creer un document.' });
+      return;
     }
 
     const metadataJson = contenuJson ? JSON.stringify({ contenuJson }) : null;
@@ -3947,8 +3983,8 @@ app.post('/api/paragraphes', async (request, response, next) => {
     }
     const titre = toNullableText(request.body.titre);
     const categorie = toNullableText(request.body.categorie);
-    const modeleId = request.body.modeleId != null ? Number(request.body.modeleId) : null;
-    const ordre = request.body.ordre != null ? Number(request.body.ordre) : null;
+    const modeleId = request.body.modeleId == null ? null : Number(request.body.modeleId);
+    const ordre = request.body.ordre == null ? null : Number(request.body.ordre);
     const result = await query(
       `INSERT INTO paragraphe_predefini (contenu, titre, categorie, id_modele, ordre)
        VALUES ($1, $2, $3, $4, $5)
@@ -3971,8 +4007,8 @@ app.put('/api/paragraphes/:id', async (request, response, next) => {
     }
     const titre = toNullableText(request.body.titre);
     const categorie = toNullableText(request.body.categorie);
-    const modeleId = request.body.modeleId != null ? Number(request.body.modeleId) : null;
-    const ordre = request.body.ordre != null ? Number(request.body.ordre) : null;
+    const modeleId = request.body.modeleId == null ? null : Number(request.body.modeleId);
+    const ordre = request.body.ordre == null ? null : Number(request.body.ordre);
     const result = await query(
       `UPDATE paragraphe_predefini
          SET contenu = $1, titre = $2, categorie = $3, id_modele = $4, ordre = $5

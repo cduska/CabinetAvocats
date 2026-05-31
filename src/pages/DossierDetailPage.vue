@@ -45,7 +45,7 @@ import type {
   TypeProcedure,
 } from '../types/domain';
 
-type ProcedureTab = 'procedure-detail' | 'history' | 'new-document' | 'notes';
+type ProcedureTab = 'procedure-detail' | 'history' | 'notes';
 
 const route = useRoute();
 const router = useRouter();
@@ -1369,14 +1369,6 @@ function goBackToDossiers() {
               Historique
             </button>
             <button
-              :class="['tab-button', activeTab === 'new-document' ? 'is-active' : '']"
-              type="button"
-              role="tab"
-              @click="activeTab = 'new-document'"
-            >
-              Nouveau document
-            </button>
-            <button
               :class="['tab-button', activeTab === 'notes' ? 'is-active' : '']"
               type="button"
               role="tab"
@@ -1456,13 +1448,6 @@ function goBackToDossiers() {
                 </li>
               </ul>
               <p v-else class="action-bar-caption">Aucun historique disponible pour la procedure selectionnee.</p>
-            </template>
-
-            <template v-else-if="activeTab === 'new-document'">
-              <div class="placeholder-block">
-                <p class="action-bar-title">Nouveau document</p>
-                <p class="action-bar-caption">Bloc reserve. Les regles de creation seront precisees ulterieurement.</p>
-              </div>
             </template>
 
             <template v-else>

@@ -54,8 +54,64 @@ function mapNeonDossier(row: NeonDossierRow): Dossier {
   };
 }
 
-async function getDossiersFromNeon(filters: { q?: string; statut?: string; agence?: string } = {}): Promise<Dossier[]> {
+async function getDossiersFromNeon(filters: { q?: string; statut?: string; agence?: string; preset?: string } = {}): Promise<Dossier[]> {
   const params = new URLSearchParams();
+
+  const preset = String(filters.preset ?? '').trim();
+
+  // Presets that need dossiers linked to procedures/instances are fetched
+  // via a different resource that natively joins the required tables.
+  if (preset === 'delayed-procedures') {
+    // Procedures open for more than 14 days → their dossiers.
+    const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const agency = String(filters.agence ?? getSessionAgency() ?? '').trim();
+    const agencyFilter = agency ? `&dossier.agence.or=(nom.ilike.*${encodeURIComponent(agency)}*,ville.ilike.*${encodeURIComponent(agency)}*)` : '';
+    const procParams = new URLSearchParams();
+    procParams.set('select', 'dossier(id,reference,id_client,id_type_dossier,id_statut_dossier,id_agence,date_ouverture,date_cloture,client(nom,prenom),type_dossier(libelle),statut_dossier(libelle),agence!inner(nom,ville),facture(montant,date_emission))');
+    procParams.set('date_fin', 'is.null');
+    procParams.set('date_debut', `lt.${cutoff}`);
+    const procRows = await requestNeonRest<Array<{ dossier?: NeonDossierRow | null }>>(`/procedure?${procParams.toString()}${agencyFilter}`);
+    const seen = new Set<number>();
+    return procRows
+      .map((r) => r.dossier)
+      .filter((d): d is NeonDossierRow => Boolean(d) && !seen.has(d.id) && seen.add(d.id) !== undefined)
+      .map(mapNeonDossier);
+  }
+
+  if (preset === 'upcoming-hearings') {
+    // Audiences in the next 7 days → their dossiers.
+    const today = new Date().toISOString().slice(0, 10);
+    const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const agency = String(filters.agence ?? getSessionAgency() ?? '').trim();
+    const agencyFilter = agency ? `&instance_juridique.procedure.dossier.agence.or=(nom.ilike.*${encodeURIComponent(agency)}*,ville.ilike.*${encodeURIComponent(agency)}*)` : '';
+    const audParams = new URLSearchParams();
+    audParams.set('select', 'instance_juridique!inner(procedure!inner(dossier!inner(id,reference,id_client,id_type_dossier,id_statut_dossier,id_agence,date_ouverture,date_cloture,client(nom,prenom),type_dossier(libelle),statut_dossier(libelle),agence!inner(nom,ville),facture(montant,date_emission)))))');
+    audParams.set('date_audience', `gte.${today}`);
+    audParams.append('date_audience', `lte.${nextWeek}`);
+    const audRows = await requestNeonRest<Array<{ instance_juridique?: { procedure?: { dossier?: NeonDossierRow | null } | null } | null }>>(`/audience?${audParams.toString()}${agencyFilter}`);
+    const seen = new Set<number>();
+    return audRows
+      .map((r) => r.instance_juridique?.procedure?.dossier)
+      .filter((d): d is NeonDossierRow => Boolean(d) && !seen.has(d.id) && seen.add(d.id) !== undefined)
+      .map(mapNeonDossier);
+  }
+
+  if (preset === 'pending-documents') {
+    // Documents without date or created in the last 30 days → their dossiers.
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const agency = String(filters.agence ?? getSessionAgency() ?? '').trim();
+    const agencyFilter = agency ? `&dossier.agence.or=(nom.ilike.*${encodeURIComponent(agency)}*,ville.ilike.*${encodeURIComponent(agency)}*)` : '';
+    const docParams = new URLSearchParams();
+    docParams.set('select', 'dossier!inner(id,reference,id_client,id_type_dossier,id_statut_dossier,id_agence,date_ouverture,date_cloture,client(nom,prenom),type_dossier(libelle),statut_dossier(libelle),agence!inner(nom,ville),facture(montant,date_emission))');
+    docParams.set('or', `(date_creation.is.null,date_creation.gte.${encodeURIComponent(thirtyDaysAgo)})`);
+    const docRows = await requestNeonRest<Array<{ dossier?: NeonDossierRow | null }>>(`/document?${docParams.toString()}${agencyFilter}`);
+    const seen = new Set<number>();
+    return docRows
+      .map((r) => r.dossier)
+      .filter((d): d is NeonDossierRow => Boolean(d) && !seen.has(d.id) && seen.add(d.id) !== undefined)
+      .map(mapNeonDossier);
+  }
+
   params.set('select', 'id,reference,id_client,id_type_dossier,id_statut_dossier,id_agence,date_ouverture,date_cloture,client(nom,prenom),type_dossier(libelle),statut_dossier(libelle),agence!inner(nom,ville),facture(montant,date_emission)');
   params.set('order', 'id.desc');
 
@@ -188,7 +244,7 @@ async function resolveNeonIds(
   return { clientId, typeId, statutId, agenceId };
 }
 
-export async function getDossiers(filters: { q?: string; statut?: string; agence?: string } = {}) {
+export async function getDossiers(filters: { q?: string; statut?: string; agence?: string; preset?: string } = {}) {
   if (isNeonDataApiEnabled()) {
     return getDossiersFromNeon(filters);
   }

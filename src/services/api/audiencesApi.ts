@@ -89,7 +89,6 @@ async function getAudiencesFromNeon(preset?: 'upcoming7d'): Promise<AudienceItem
   const params = new URLSearchParams();
   params.set('select', 'id,date_debut,audience(id,date_audience,commentaire),type_instance(libelle),procedure(id,type_procedure(libelle),statut_procedure(libelle),dossier(id,reference,type_dossier(libelle),agence(nom,ville)))');
   params.set('order', 'date_debut.asc,id.asc');
-  params.set('date_debut', 'not.is.null');
 
   const rows = await requestNeonRest<InstanceNeonRow[]>(`/instance_juridique?${params.toString()}`);
   const agency = String(getSessionAgency() ?? '').trim().toLowerCase();
