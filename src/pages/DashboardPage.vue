@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import FullCalendar from '@fullcalendar/vue3';
 import dayGridPlugin from '@fullcalendar/daygrid';
@@ -209,6 +209,21 @@ const calendarOptions = computed<CalendarOptions>(() => ({
   height: 'auto',
   noEventsText: 'Aucune audience pour les filtres selectionnes',
 }));
+
+const calendarRef = ref<InstanceType<typeof FullCalendar> | null>(null);
+
+// Navigate to the month containing the nearest upcoming event (or most recent past event)
+// once on first data load so the user doesn't land on an empty month.
+const stopCalendarNavWatch = watch(filteredCalendarEvents, (events) => {
+  if (events.length === 0) return;
+  stopCalendarNavWatch();
+  const today = new Date().toISOString().slice(0, 10);
+  const upcoming = events.find((e) => e.dateAudience >= today);
+  const target = upcoming ?? events[events.length - 1];
+  nextTick(() => {
+    calendarRef.value?.getApi().gotoDate(target.dateAudience);
+  });
+});
 </script>
 
 <template>
@@ -286,7 +301,7 @@ const calendarOptions = computed<CalendarOptions>(() => ({
         </aside>
 
         <div class="calendar-main">
-          <FullCalendar :options="calendarOptions" />
+          <FullCalendar ref="calendarRef" :options="calendarOptions" />
         </div>
       </div>
     </section>
